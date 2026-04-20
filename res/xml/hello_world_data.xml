@@ -1,0 +1,5 @@
+<objects>
+    <font name="universal_font" file="res/fonts/trafaretkit.ttf" size="24"/>
+    <placeholder name="universal_placeholder" file="res/textures/placeholders/ohno.png"/>
+    <locale file="res/localiz/placeholders.csv"/>
+</objects>

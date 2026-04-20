@@ -1,94 +1,120 @@
-cmake_minimum_required(VERSION 3.31)
+cmake_minimum_required(VERSION 3.28) # Минимальная версия для хорошей поддержки модулей
 project(Diplom LANGUAGES C CXX)
 
+# Стандарт C++23 (как у вас было), модули работают и в 20, и в 23
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Включаем автоматическое сканирование зависимостей модулей
+# Это критически важно, чтобы CMake понял порядок компиляции .ixx файлов
+set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+
 # Найти зависимости
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
+find_package(OpenGL REQUIRED)
 
-# GLAD: предполагаем, что он лежит в поддиректории glad/
+# --- GLAD (остается обычной статической библиотекой, так как это C код) ---
 add_library(glad STATIC)
 set_target_properties(glad PROPERTIES LINKER_LANGUAGE C)
 target_sources(glad PRIVATE thirdparty/glad/src/glad.c)
 target_include_directories(glad PUBLIC thirdparty/glad/include)
 target_link_libraries(glad PUBLIC glfw)
 
+# --- Список исходных файлов модулей ---
+# Мы убираем все .h файлы.
+# Предполагается, что вы переименовали файлы реализации в .ixx (рекомендуется)
+# или оставили .cpp, но внутри них написали 'export module ...'.
+# Ниже приведен список с расширением .ixx для явного указания модулей.
+# Если вы оставили .cpp, просто замените .ixx на .cpp в этом списке.
+
 # Основное приложение
-add_executable(${PROJECT_NAME} src/main.cpp
+add_executable(${PROJECT_NAME}
+        src/misc/Multitype_index_repository.ixx)
+
+# 1. Обычные источники (main.cpp, старые .cpp библиотеки)
+# Они не являются модулями, поэтому добавляются как обычные источники
+target_sources(${PROJECT_NAME} PRIVATE
         src/main.cpp
-        src/graphics/renderer.cpp
-        src/graphics/renderer.h
-        src/graphics/sprite.cpp
-        src/graphics/sprite.h
-        src/graphics/texture_manager.cpp
-        src/graphics/texture_manager.h
-        src/graphics/texture.cpp
-        src/graphics/texture.h
-        src/graphics/primitives.h
-        src/graphics/texture_manager.cpp
-        src/graphics/texture_manager.h
-        src/graphics/texture_atlas.cpp
-        src/graphics/texture_atlas.h
-        src/graphics/shader.cpp
-        src/graphics/shader.h
-        src/game.cpp
-        src/game.h
         thirdparty/stb/stb_realisations.cpp
         thirdparty/tinyxml2/tinyxml2.cpp
-        src/graphics/camera.cpp
-        src/graphics/camera.h
-        src/graphics/text_box.cpp
-        src/graphics/text_box.h
-        src/graphics/font.cpp
-        src/graphics/font.cpp
-        src/graphics/font.h
-        src/misc/localisation_manager.cpp
-        src/misc/localisation_manager.h
-        src/graphics/graphics_pipeliner.cpp
-        src/graphics/graphics_pipeliner.h
-
 )
 
-# Заголовки
-target_include_directories(${PROJECT_NAME} PRIVATE src)
-target_include_directories(${PROJECT_NAME} PRIVATE thirdparty)
-# Зависимости
-target_link_libraries(${PROJECT_NAME} PRIVATE glad glm::glm)
+# 2. Источники модулей (C++20 Modules)
+# Ключевой момент: используем FILE_SET CXX_MODULES
+target_sources(${PROJECT_NAME} PRIVATE
+        FILE_SET CXX_MODULES TYPE CXX_MODULES FILES
+        src/graphics/Renderer.ixx
+        src/graphics/Sprite.ixx
+        src/graphics/Texture.ixx
+        src/graphics/Atlas.ixx
+        src/graphics/Shader.ixx
+        src/graphics/Camera.ixx
+        src/graphics/text_box.ixx
+        src/graphics/Font.ixx
+        src/graphics/Resources.ixx
+        src/graphics/Locale.ixx
+        src/graphics/Sprites_repository.ixx
+        src/misc/Multitype_index_repository.ixx
+        src/Game.ixx
+)
 
-# OpenGL (на большинстве систем подключается автоматически через GLFW)
-find_package(OpenGL REQUIRED)
-target_link_libraries(${PROJECT_NAME} PRIVATE OpenGL::GL)
+# Подключение директорий
+target_include_directories(${PROJECT_NAME} PRIVATE
+        src
+        thirdparty
+)
 
-# Определяем пути
+# Линковка
+target_link_libraries(${PROJECT_NAME} PRIVATE
+        glad
+        glm::glm
+        OpenGL::GL
+)
+# Подключение директорий
+# Важно: даже с модулями, если внутри :private используется #include <glm/...>,
+# пути должны быть доступны компилятору.
+target_include_directories(${PROJECT_NAME} PRIVATE
+        src
+        thirdparty
+)
+
+# Линковка
+target_link_libraries(${PROJECT_NAME} PRIVATE
+        glad
+        glm::glm
+        OpenGL::GL
+)
+
+# --- Ресурсы (логика копирования сохранена и немного улучшена) ---
 set(RES_SOURCE_DIR "${CMAKE_SOURCE_DIR}/res")
 set(RES_TARGET_DIR "$<TARGET_FILE_DIR:${PROJECT_NAME}>/res")
 
-# Собираем файлы ресурсов с отслеживанием изменений
-file(GLOB_RECURSE RES_FILES
-        CONFIGURE_DEPENDS
-        "${RES_SOURCE_DIR}/*"
-)
+file(GLOB_RECURSE RES_FILES CONFIGURE_DEPENDS "${RES_SOURCE_DIR}/*")
 
-# Маркер в директории сборки (абсолютный путь, без генераторных выражений)
 set(RES_MARKER "${CMAKE_BINARY_DIR}/.res_copied")
 
-# Копируем в правильную директорию (генераторное выражение допустимо в COMMAND)
 add_custom_command(
         OUTPUT "${RES_MARKER}"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${RES_SOURCE_DIR}"
-        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/res"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${RES_SOURCE_DIR}" "${RES_TARGET_DIR}"
         COMMAND ${CMAKE_COMMAND} -E touch "${RES_MARKER}"
         DEPENDS ${RES_FILES}
-        COMMENT "Copying resources to $<TARGET_FILE_DIR:${PROJECT_NAME}>/res"
+        COMMENT "Copying resources to ${RES_TARGET_DIR}"
         VERBATIM
 )
 
-add_custom_target(copy_resources ALL
-        DEPENDS "${RES_MARKER}"
-)
-
+add_custom_target(copy_resources ALL DEPENDS "${RES_MARKER}")
 add_dependencies(${PROJECT_NAME} copy_resources)
+
+# --- Дополнительные настройки для конкретных компиляторов (опционально) ---
+if(MSVC)
+    # MSVC иногда требует явного указания языка для .ixx
+    set_source_files_properties(${MODULE_SOURCES} PROPERTIES LANGUAGE CXX)
+    # Флаг для поддержки модулей в старых версиях VS 2022, в новых может не понадобиться
+    target_compile_options(${PROJECT_NAME} PRIVATE /experimental:module)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # Для GCC/Clang убеждаемся, что включен флаг сканирования (обычно включен через CMAKE_CXX_SCAN_FOR_MODULES)
+    # Но иногда полезно добавить явно, если возникают проблемы с порядком компиляции
+    target_compile_options(${PROJECT_NAME} PRIVATE -fmodules-ts)
+endif()

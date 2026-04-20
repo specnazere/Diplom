@@ -1,0 +1,134 @@
+//
+// Created by A on 01.02.2026.
+//
+
+// === Global module fragment: сторонние #include идут сюда, до объявления модуля ===
+module;
+
+#include "glad/glad.h"
+#include "GLFW/glfw3.h"
+
+#include <stdexcept>
+#include <string>
+#include <set>
+
+export module game;
+
+import renderer;
+import resources;
+import sprite_repository;
+import locale;
+import font;
+import text_box;
+import atlas;
+
+// Вызывается из main.cpp как game::run()
+export
+namespace game
+{
+    int run()
+    {
+        // === Инициализация GLFW ===
+        glfwInit();
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+        GLFWwindow* window = glfwCreateWindow(800, 600, "Hello World!", nullptr, nullptr);
+        if (!window) {
+            const char* err_buffer = nullptr;
+            glfwGetError(&err_buffer);
+            glfwTerminate();
+            throw std::runtime_error("Failed to create GLFW window: " + std::string(err_buffer));
+        }
+
+        glfwMakeContextCurrent(window);
+
+        if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
+            const char* err_buffer = nullptr;
+            glfwGetError(&err_buffer);
+            glfwTerminate();
+            throw std::runtime_error("Failed to load OpenGL: " + std::string(err_buffer));
+        }
+
+        // === Инициализация ресурсов ===
+        Resources res;
+
+        // Загружаем таблицу локализации
+        res.loadLocaleFile("res/localiz/placeholders.csv");
+
+        // Загружаем файл шрифта (данные TTF, без растеризации)
+        res.loadFontFile("res/fonts/trafaretkit.ttf", "basic", 50.0f);
+
+        // Получаем набор символов из первой (или нужной) локали
+        // Предполагаем, что loadLocaleFile добавил локаль "ru" (или нужную)
+        // Charset строим из всех имеющихся локалей
+        std::set<char32_t> combined_charset;
+        {
+            // Добавляем основной charset из загруженной локали.
+            // Предполагаем ключ "ru" — скорректируйте под реальный дескриптор в CSV.
+            Locale& loc = res.localesRepo["russian"].object;
+            const auto& cs = loc.getCharset();
+            combined_charset.insert(cs.begin(), cs.end());
+        }
+
+        // Растеризуем глифы шрифта под полученный charset
+        res.initFontWithCharset(combined_charset, 50, "basic");
+
+        // Получаем ссылку на шрифт и связываем его с атласом
+        Font& font = res.fontsRepo["basic"].object;
+        font.bakeGlyphs(combined_charset, res.texturesRepo);
+
+        // Создаём GPU-атлас из текстуры шрифта
+        Atlas* atlas = res.createAtlas();
+        if (!atlas)
+            throw std::runtime_error("Failed to create texture atlas");
+
+        // === Инициализация репозитория спрайтов ===
+        // Перемещаем атлас в репозиторий (он там хранится по значению)
+        SpritesRepository repo;
+        repo.atlas = std::move(*atlas);
+        // delete atlas;
+
+        // === Инициализация рендерера ===
+        Renderer::init(window, &repo);
+
+        // === Создание текстового блока ===
+        Text_box text;
+        text.set_font(&font);
+        // Передаём u32string напрямую, т.к. localisation_manager больше не существует.
+        // Если нужна локализация — получайте строку из locale до передачи в set_text.
+        text.set_text(res.localesRepo["russian"].object["hello_world"]);
+        text.set_pos(0, 0);
+        text.set_width(650);
+        text.bake_text(font, repo);
+
+        repo.atlas.bind();
+
+        // === Игровой цикл ===
+        double last_time = glfwGetTime();
+        constexpr double target_fps  = 60.0;
+        constexpr double frame_time  = 1.0 / target_fps;
+
+        while (!glfwWindowShouldClose(window))
+        {
+            const double current_time = glfwGetTime();
+            const double delta        = current_time - last_time;
+
+            if (delta < frame_time) {
+                glfwWaitEventsTimeout(frame_time - delta);
+                continue;
+            }
+
+            last_time = current_time;
+
+            glfwPollEvents();
+            Renderer::render();
+            glfwSwapBuffers(window);
+        }
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 0;
+    }
+}
