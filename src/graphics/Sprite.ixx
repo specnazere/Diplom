@@ -14,8 +14,8 @@ export module sprite;
 
 export
 struct alignas(16) SpriteData {
-    glm::float32 width{};
-    glm::float32 height{};
+    glm::float32 width = 100;
+    glm::float32 height = 100;
     glm::float32 angle{};
     glm::float32 position_x{};
     glm::float32 position_y{};
@@ -37,7 +37,7 @@ export
 class Sprite {
 public:
     // Индекс в векторе sprite_data_ репозитория. -1 если не активен или не добавлен
-    SpriteData* data = nullptr;
+    size_t data = 234423452546;
     float depth = 0.0f;
     bool active = false;
     size_t textureDesc = 0;

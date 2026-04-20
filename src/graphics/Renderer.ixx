@@ -97,6 +97,8 @@ public:
         sprite_shader_      = new shader("res/shaders/sprite");
         postprocess_shader_ = new shader("res/shaders/postprocess");
 
+        glfwSwapInterval(0);
+
         // === VAO для спрайтов (instancing) ===
         {
             glGenVertexArrays(1, &sprite_vao_);

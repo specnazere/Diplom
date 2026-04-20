@@ -30,15 +30,18 @@ private:
 
     Font* font = nullptr;
 
-    std::vector<Sprite*> sprites_;
+    std::vector<size_t> indices_;
     std::u32string text;
 
     std::vector<int> words_wideness;
 
     text_alignment alignment = left;
 
+    SpritesRepository& sprites_;
+
 public:
-    Text_box() {};
+    Text_box(SpritesRepository& spritesRepo) :
+        sprites_(spritesRepo) {}
 
     void set_pos(const int &x, const int &y) {
         pos_x = x;
@@ -55,6 +58,40 @@ public:
     void set_font(Font* new_font) {
         font = new_font;
         reload_positions();
+    }
+
+    void bake_text() {
+        clear_sprites();
+        if (text.size() == 0) return;
+
+        int i = 0;
+        for (char32_t c : text) {
+            if (c != U' ' && c != U'\t' && c != U'\r' && c != U'\n') {
+                indices_.push_back(sprites_.addSprite(SpriteData(), 0));
+                auto& spriteData = sprites_.dataFromSpriteIdx(indices_[i++]);
+
+                spriteData.width = font->get_glyph(c).width;
+                spriteData.height = font->get_glyph(c).height;
+
+                spriteData.uvRect = sprites_.atlas.get_uv(font->get_glyph(c).textureIDesc);
+                words_wideness.back() -= font->get_glyph(c).width;
+            } else {
+                if (c == U' ') words_wideness.push_back(0);
+            }
+        }
+
+        reload_positions();
+    }
+
+    void clear_sprites()
+    {
+        for (auto spriteIdx : indices_) {
+            sprites_.removeSprite(spriteIdx);
+        }
+        indices_.clear();
+
+        words_wideness.clear();
+        words_wideness.push_back(0);
     }
 
     void reload_positions() const {
@@ -92,48 +129,14 @@ public:
                 if (prev_char != 0)
                     if (font->get_glyph(text[i]).kern.contains(prev_char))
                         kern = font->get_glyph(text[i]).kern.at(prev_char);
-                sprites_[i - words_counter]->data->position_x =
-                    pos_x + offset_x + font->get_glyph(text[i]).width / 2 + font->get_glyph(text[i]).offset_x + kern;
-                sprites_[i - words_counter]->data->position_y =
-                    pos_y + offset_y + font->get_glyph(text[i]).height / 2 - font->get_glyph(text[i]).offset_y +
+
+                auto& spriteData = sprites_.dataFromSpriteIdx(indices_[i - words_counter]);
+                spriteData.position_x = pos_x + offset_x + font->get_glyph(text[i]).width / 2 + font->get_glyph(text[i]).offset_x + kern;
+                spriteData.position_y = pos_y + offset_y + font->get_glyph(text[i]).height / 2 - font->get_glyph(text[i]).offset_y +
                     (font->get_size() - font->get_glyph(text[i]).height);
                 prev_char = text[i];
             }
             offset_x += font->get_glyph(text[i]).advance;
         }
-    }
-    void bake_text(const Font& font, SpritesRepository& spritesRepo) {
-        clear_sprites();
-        if (text.size() == 0) return;
-
-        sprites_.reserve(text.size());
-        int i = 0;
-        for (char32_t c : text) {
-            if (c != U' ' && c != U'\t' && c != U'\r' && c != U'\n') {
-                sprites_.push_back(spritesRepo.addSprite(SpriteData(), 0));
-                auto spriteData = sprites_[i++]->data;
-
-                spriteData->width = font.get_glyph(c).width;
-                spriteData->height = font.get_glyph(c).height;
-
-                spriteData->uvRect = spritesRepo.atlas.get_uv(font.get_glyph(c).textureIDesc);
-                words_wideness.back() -= font.get_glyph(c).width;
-            } else {
-                if (c == U' ') words_wideness.push_back(0);
-            }
-        }
-
-        reload_positions();
-    }
-
-    void clear_sprites()
-    {
-        for (auto sprite : sprites_) {
-            sprite->active = false;
-        }
-        sprites_.clear();
-
-        words_wideness.clear();
-        words_wideness.push_back(0);
     }
 };

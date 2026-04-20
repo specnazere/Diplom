@@ -29,6 +29,7 @@ int main() {
             std::cerr << "Unhandled: " << e.what() << std::endl;
         }
         __debugbreak();
+        abort();
     });
 
     game::run();

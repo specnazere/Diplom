@@ -33,13 +33,13 @@ public:
 
     SpritesRepository()
     {
-        sprites_.reserve(128);
-        sorted_indices_.reserve(128);
-        sprite_data_.reserve(128);
+        // sprites_.reserve(128);
+        // sorted_indices_.reserve(128);
+        // sprite_data_.reserve(128);
     };
 
     // Добавление спрайта. Возвращает индекс в векторе sprites_
-    Sprite* addSprite(const SpriteData& data, float depth) {
+    size_t addSprite(const SpriteData& data, float depth) {
         size_t sprite_idx;
         int data_idx;
 
@@ -128,21 +128,21 @@ public:
         sprite_data_.push_back(data);
         sorted_indices_.push_back(new_data_idx);
 
-        Sprite* new_sprite = new Sprite();
-        new_sprite->data = &sprite_data_.data()[new_data_idx];
-        new_sprite->depth = depth;
-        new_sprite->active = true;
-
         if (!free_sprite_indices_.empty()) {
             sprite_idx = free_sprite_indices_.front();
             free_sprite_indices_.pop();
-            sprites_[sprite_idx] = *new_sprite;
+            sprites_[sprite_idx] = {};
         } else {
             sprite_idx = static_cast<int>(sprites_.size());
-            sprites_.push_back(*new_sprite);
+            sprites_.push_back(0);
         }
 
-        return new_sprite;
+        Sprite& new_sprite = sprites_[sprite_idx];
+        new_sprite.data = new_data_idx;
+        new_sprite.depth = depth;
+        new_sprite.active = true;
+
+        return sprite_idx;
     }
 
     // Удаление спрайта по индексу в векторе sprites_
@@ -152,11 +152,9 @@ public:
         Sprite& spr = sprites_[sprite_idx];
         if (!spr.active) return;
 
-        int data_idx_to_remove = dataIndex(spr.data);
-
         // 1. Убираем связь у спрайта
         spr.active = false;
-        spr.data = nullptr;
+        spr.data = 3465346364;
         free_sprite_indices_.push(sprite_idx);
 
         // 2. Удаляем данные из плотных векторов (Swap-and-Pop для O(1))
@@ -273,7 +271,7 @@ public:
         // sorted_indices_ — это буфер индексов для GPU (или CPU обхода), содержащий индексы в sprite_data_.
         // Он всегда актуален и отсортирован.
 
-        std::vector<std::pair<float, SpriteData*>> depth_map; // depth, data_index
+        std::vector<std::pair<float, size_t>> depth_map; // depth, data_index
         depth_map.reserve(sprites_.size());
 
         for (const auto& s : sprites_) {
@@ -282,13 +280,13 @@ public:
             }
         }
 
-        std::sort(depth_map.begin(), depth_map.end(), [](const auto& a, const auto& b) {
+        std::stable_sort(depth_map.begin(), depth_map.end(), [](const auto& a, const auto& b) {
             return a.first < b.first; // Sort by depth ascending
         });
 
         sorted_indices_.resize(depth_map.size());
         for (size_t i = 0; i < depth_map.size(); ++i) {
-            sorted_indices_[i] = dataIndex(depth_map[i].second);
+            sorted_indices_[i] = depth_map[i].second;
         }
     }
 
@@ -311,5 +309,15 @@ public:
 
     size_t getIndicesSize() const {
         return sorted_indices_.size();
+    }
+
+    SpriteData& dataFromSpriteIdx(const size_t& index)
+    {
+        return sprite_data_[sprites_[index].data];
+    }
+
+    Sprite& operator[](const size_t& index)
+    {
+        return sprites_[index];
     }
 };

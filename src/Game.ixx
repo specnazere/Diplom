@@ -94,14 +94,14 @@ namespace game
         Renderer::init(window, &repo);
 
         // === Создание текстового блока ===
-        Text_box text;
+        Text_box text(repo);
         text.set_font(&font);
         // Передаём u32string напрямую, т.к. localisation_manager больше не существует.
         // Если нужна локализация — получайте строку из locale до передачи в set_text.
         text.set_text(res.localesRepo["russian"].object["hello_world"]);
-        text.set_pos(0, 0);
+        text.set_pos(-100, -300);
         text.set_width(650);
-        text.bake_text(font, repo);
+        text.bake_text();
 
         repo.atlas.bind();
 
@@ -112,15 +112,15 @@ namespace game
 
         while (!glfwWindowShouldClose(window))
         {
-            const double current_time = glfwGetTime();
-            const double delta        = current_time - last_time;
-
-            if (delta < frame_time) {
-                glfwWaitEventsTimeout(frame_time - delta);
-                continue;
-            }
-
-            last_time = current_time;
+            // const double current_time = glfwGetTime();
+            // const double delta        = current_time - last_time;
+            //
+            // if (delta < frame_time) {
+            //     glfwWaitEventsTimeout(frame_time - delta);
+            //     continue;
+            // }
+            //
+            // last_time = current_time;
 
             glfwPollEvents();
             Renderer::render();
