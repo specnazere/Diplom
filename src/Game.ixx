@@ -60,6 +60,8 @@ namespace game
         // Загружаем файл шрифта (данные TTF, без растеризации)
         res.loadFontFile("res/fonts/trafaretkit.ttf", "basic", 50.0f);
 
+        size_t spaceshipTexture = res.loadTextureFile("spaceship_color", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
+
         // Получаем набор символов из первой (или нужной) локали
         // Предполагаем, что loadLocaleFile добавил локаль "ru" (или нужную)
         // Charset строим из всех имеющихся локалей
@@ -94,24 +96,31 @@ namespace game
         Renderer::init(window, &repo);
 
         // === Создание текстового блока ===
-        Text_box text(repo);
-        text.set_font(&font);
-        // Передаём u32string напрямую, т.к. localisation_manager больше не существует.
-        // Если нужна локализация — получайте строку из locale до передачи в set_text.
-        text.set_text(res.localesRepo["russian"].object["hello_world"]);
-        text.set_pos(-100, -300);
-        text.set_width(650);
-        text.bake_text();
-
-        repo.atlas.bind();
+        // Text_box text(repo);
+        // text.set_font(&font);
+        // // Передаём u32string напрямую, т.к. localisation_manager больше не существует.
+        // // Если нужна локализация — получайте строку из locale до передачи в set_text.
+        // text.set_text(res.localesRepo["russian"].object["hello_world"]);
+        // text.set_pos(-100, -300);
+        // text.set_width(650);
+        // text.bake_text();
+        for (int i = 0; i < 1; i += 1) {
+            size_t spriteindex = repo.addSprite({}, 0);
+            auto& spriteData = repo.dataFromSpriteIdx(spriteindex);
+            spriteData.width = 1959 / 3;
+            spriteData.height = 1024 / 3;
+            spriteData.uvRect = repo.atlas.get_uv(spaceshipTexture);
+        }
 
         // === Игровой цикл ===
         double last_time = glfwGetTime();
         constexpr double target_fps  = 60.0;
         constexpr double frame_time  = 1.0 / target_fps;
+        float time = 0;
 
         while (!glfwWindowShouldClose(window))
         {
+            time += 0.0006;
             // const double current_time = glfwGetTime();
             // const double delta        = current_time - last_time;
             //
@@ -123,7 +132,7 @@ namespace game
             // last_time = current_time;
 
             glfwPollEvents();
-            Renderer::render();
+            Renderer::render(time);
             glfwSwapBuffers(window);
         }
 

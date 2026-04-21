@@ -45,15 +45,24 @@ public:
     repository<Locale>  localesRepo;
     repository<Font>    fontsRepo;
 
-    void loadTextureFile(const std::string& path, const std::string& sDesc)
+    size_t loadTextureFile(const std::string& sDesc, const std::string& colorPath, const std::string& normalePath = "none")
     {
         int width, height, channels;
-        unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 4);
-        if (!data) {
-            std::cerr << "Texture load failed: " << path << std::endl;
+        unsigned char* colorData = stbi_load(colorPath.c_str(), &width, &height, &channels, 4);
+        unsigned char* normaleData = nullptr;
+        if (!colorData) {
+            throw std::runtime_error("Texture load failed: " + colorPath);
         }
 
-        texturesRepo.add(sDesc, texture(width, height, data));
+        if (normalePath != "none") {
+            normaleData = stbi_load(normalePath.c_str(), &width, &height, &channels, 4);
+            if (!normaleData) {
+                throw std::runtime_error("Texture load failed: " + normalePath);
+            }
+        }
+
+
+        return texturesRepo.add(sDesc, texture(width, height, colorData, normaleData));
     }
 
     void loadLocaleFile(const std::string& path)
@@ -202,7 +211,8 @@ public:
         int max_size = GL_MAX_TEXTURE_SIZE;
         int atlas_size = 1;
         while (atlas_size * atlas_size < total_area * 1.5f && atlas_size < max_size) atlas_size *= 2;
-        if (atlas_size > max_size) throw std::runtime_error("Too many textures for atlas");
+        if (atlas_size > max_size)
+            throw std::runtime_error("Too many textures for atlas");
 
         // 3. Упаковка через stb_rect_pack
         std::vector<stbrp_node> nodes(1024);
@@ -219,18 +229,19 @@ public:
         if (!stbrp_pack_rects(&context, rects.data(), (int)rects.size())) {
             // Не поместилось — попробовать увеличить размер
             while (atlas_size < max_size) {
-                atlas_size *= 2;
+                atlas_size *= 1.5;
                 stbrp_init_target(&context, atlas_size, atlas_size, nodes.data(), (int)nodes.size());
                 if (stbrp_pack_rects(&context, rects.data(), (int)rects.size())) break;
             }
             if (atlas_size > max_size) {
-                for (auto& t : textures) stbi_image_free(t.second->data);
+                for (auto& t : textures) stbi_image_free(t.second->colorData);
                 throw std::runtime_error("Too many textures for atlas");
             }
         }
 
         // 4. Создать буфер атласа и скопировать текстуры
         std::vector<unsigned char> atlas_pixels(atlas_size * atlas_size * 4, 0);
+        std::vector<unsigned char> atlas_normale_pixels(atlas_size * atlas_size * 4, 0);
         for (size_t i = 0; i < textures.size(); ++i) {
             if (!rects[i].was_packed) continue;
 
@@ -238,7 +249,8 @@ public:
             int y = rects[i].y;  // stb_rect_pack использует координаты от верхнего левого угла
             int w = textures[i].second->width;
             int h = textures[i].second->height;
-            unsigned char* src = textures[i].second->data;
+            unsigned char* color_src = textures[i].second->colorData;
+            unsigned char* normale_src = textures[i].second->normaleData;
 
             for (int row = 0; row < h; ++row) {
                 for (int col = 0; col < w; ++col) {
@@ -247,10 +259,26 @@ public:
                     int dst_idx = ((y + row) * atlas_size + (x + col)) * 4;
                     int src_idx = (src_row * w + (w - 1 - col)) * 4;
 
-                    atlas_pixels[dst_idx + 0] = src[src_idx + 0];  // R
-                    atlas_pixels[dst_idx + 1] = src[src_idx + 1];  // G
-                    atlas_pixels[dst_idx + 2] = src[src_idx + 2];  // B
-                    atlas_pixels[dst_idx + 3] = src[src_idx + 3];  // A
+                    atlas_pixels[dst_idx + 0] = color_src[src_idx + 0];  // R
+                    atlas_pixels[dst_idx + 1] = color_src[src_idx + 1];  // G
+                    atlas_pixels[dst_idx + 2] = color_src[src_idx + 2];  // B
+                    atlas_pixels[dst_idx + 3] = color_src[src_idx + 3];  // A
+                }
+            }
+
+            if (!normale_src) continue;
+
+            for (int row = 0; row < h; ++row) {
+                for (int col = 0; col < w; ++col) {
+                    // Инвертируем row для src: последняя строка src станет первой в атласе
+                    int src_row = h - 1 - row;
+                    int dst_idx = ((y + row) * atlas_size + (x + col)) * 4;
+                    int src_idx = (src_row * w + (w - 1 - col)) * 4;
+
+                    atlas_normale_pixels[dst_idx + 0] = normale_src[src_idx + 0];  // R
+                    atlas_normale_pixels[dst_idx + 1] = normale_src[src_idx + 1];  // G
+                    atlas_normale_pixels[dst_idx + 2] = normale_src[src_idx + 2];  // B
+                    atlas_normale_pixels[dst_idx + 3] = normale_src[src_idx + 3];  // A
                 }
             }
         }
@@ -267,8 +295,19 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
+        unsigned int normale_atlas_id;
+        glGenTextures(1, &normale_atlas_id);
+        glBindTexture(GL_TEXTURE_2D, normale_atlas_id);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, atlas_size, atlas_size, 0, GL_RGBA, GL_UNSIGNED_BYTE, atlas_normale_pixels.data());
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
         // 6. Создать объект атласа и заполнить UV-маппинг
-        auto atlas = new Atlas(atlas_id, atlas_size, atlas_size);
+        auto atlas = new Atlas(atlas_id, normale_atlas_id, atlas_size, atlas_size);
         for (size_t i = 0; i < textures.size(); ++i) {
             if (!rects[i].was_packed) continue;
 

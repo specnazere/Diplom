@@ -152,7 +152,7 @@ public:
 
             stbtt_FreeBitmap(bitmap, nullptr);
 
-            texture* glyph_texture = new texture(width, height, tex_buffer);
+            texture* glyph_texture = new texture(width, height, tex_buffer, nullptr);
             std::string tex_name   = name + "_atlas_" + getCodepointStr(c);
 
             max_glyph_height = max_glyph_height > height ? max_glyph_height : height;

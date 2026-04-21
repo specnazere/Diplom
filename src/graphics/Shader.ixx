@@ -14,9 +14,9 @@ module;
 export module shader;
 
 export
-class shader {
+class Shader {
 public:
-    explicit shader(const std::string& path) {
+    explicit Shader(const std::string& path) {
         std::string vert_source = read_file(path + ".vert");
         std::string frag_source = read_file(path + ".frag");
 
@@ -38,7 +38,7 @@ public:
             throw std::runtime_error(std::string("Shader linking failed: ") + log);
         }
     }
-    ~shader() {
+    ~Shader() {
         if (program_id_) glDeleteProgram(program_id_);
     }
 

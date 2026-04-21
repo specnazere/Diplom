@@ -10,10 +10,11 @@ export
 struct texture {
     int width;
     int height;
-    unsigned char *data;
+    unsigned char *colorData;;
+    unsigned char *normaleData;
 
-    texture(int width, int height, unsigned char *data)
-    : width(width), height(height), data(data) {}
+    texture(int width, int height, unsigned char *colorData, unsigned char *normaleData)
+    : width(width), height(height), colorData(colorData), normaleData(normaleData) {}
     ~texture() {
         //if (id) glDeleteTextures(1, &id);
     }

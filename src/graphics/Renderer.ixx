@@ -45,8 +45,8 @@ private:
     static inline GLuint color_texture_ = 0;
     static inline GLuint rbo_           = 0;
 
-    static inline shader* sprite_shader_      = nullptr;
-    static inline shader* postprocess_shader_ = nullptr;
+    static inline Shader* sprite_shader_      = nullptr;
+    static inline Shader* postprocess_shader_ = nullptr;
 
     static inline int window_width_  = 0;
     static inline int window_height_ = 0;
@@ -94,8 +94,8 @@ public:
 
         glfwGetFramebufferSize(window, &window_width_, &window_height_);
 
-        sprite_shader_      = new shader("res/shaders/sprite");
-        postprocess_shader_ = new shader("res/shaders/postprocess");
+        sprite_shader_      = new Shader("res/shaders/sprite");
+        postprocess_shader_ = new Shader("res/shaders/postprocess");
 
         glfwSwapInterval(0);
 
@@ -227,13 +227,13 @@ public:
         if (rbo_)           glDeleteRenderbuffers(1, &rbo_);
 
         // Создаём цветовую текстуру
-        glGenTextures(1, &color_texture_);
-        glBindTexture(GL_TEXTURE_2D, color_texture_);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, buffer_width, buffer_height,
-                     0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glBindTexture(GL_TEXTURE_2D, 0);
+        // glGenTextures(1, &color_texture_);
+        // glBindTexture(GL_TEXTURE_2D, color_texture_);
+        // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, buffer_width, buffer_height,
+        //              0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        // glBindTexture(GL_TEXTURE_2D, 0);
 
         // Создаём depth/stencil RBO
         glGenRenderbuffers(1, &rbo_);
@@ -255,7 +255,7 @@ public:
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    static void render()
+    static void render(float time = 0)
     {
         if (!initialized_ || !repo_) return;
 
@@ -264,7 +264,7 @@ public:
         // === Этап 1: Рендер спрайтов в FBO ===
 
         // Биндим атлас из репозитория
-        repo_->atlas.bind();
+        repo_->atlas.bind(sprite_shader_);
 
         // glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
         // glViewport(0, 0, window_width_ + BUFFER_OVERSIZE, window_height_ + BUFFER_OVERSIZE);
@@ -278,6 +278,7 @@ public:
 
         sprite_shader_->use();
         sprite_shader_->set_uniform("uView", camera::get_view());
+        sprite_shader_->set_uniform("uLightPos", glm::vec2(std::cos(time) * 500, std::sin(time) * 500));
 
         // Обновляем instance VBO текущими данными (STREAM — данные меняются каждый кадр)
         glBindVertexArray(sprite_vao_);
