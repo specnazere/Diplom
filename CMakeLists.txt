@@ -56,6 +56,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/graphics/Resources.ixx
         src/graphics/Locale.ixx
         src/graphics/Sprites_repository.ixx
+        src/graphics/Mesh.ixx
         src/misc/Multitype_index_repository.ixx
         src/Game.ixx
 )

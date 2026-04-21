@@ -5,6 +5,7 @@
 module;
 
 #include "glad/glad.h"
+#include "glm/glm.hpp"
 
 #include <codecvt>
 #include <fstream>
@@ -17,12 +18,16 @@ module;
 #include <stb/stb_truetype.h>
 #include <stb/stb_rect_pack.h>
 
+#include "uv_rect.h"
+
 export module resources;
+
+import multitype_index_repository;
 
 import texture;
 import locale;
 import font;
-import multitype_index_repository;
+import mesh;
 
 import atlas;
 
@@ -44,6 +49,7 @@ public:
     repository<texture> texturesRepo;
     repository<Locale>  localesRepo;
     repository<Font>    fontsRepo;
+    repository<Mesh>    meshesRepo;
 
     size_t loadTextureFile(const std::string& sDesc, const std::string& colorPath, const std::string& normalePath = "none")
     {
@@ -319,5 +325,80 @@ public:
             atlas->add_mapping(textures[i].first, u0, v0, u1, v1);
         }
         return atlas;
+    }
+
+    size_t load_mesh_from_file(const std::string& filepath, const std::string& textureDesc, const std::string& name, const Atlas& atlas)
+    {
+        std::ifstream file(filepath);
+        if (!file.is_open())
+        {
+            throw std::runtime_error("Cannot open mesh file: " + filepath);
+        }
+
+        std::vector<Vertex2D>  vertices;
+        std::vector<glm::uint> indices;
+
+        texture& connectedTexture = texturesRepo[textureDesc].object;
+
+        // Предварительное резервирование памяти опционально, но полезно для производительности
+        // Если известен размер из заголовка, можно распарсить его сначала.
+        // Здесь парсим построчно.
+
+        std::string line;
+
+        float offsetx = connectedTexture.width / 2;
+        float offsety = connectedTexture.height / 2;
+
+        uv_rect atlasUV = atlas.get_uv(texturesRepo[textureDesc].iDesc);
+        glm::vec2 uvScale = glm::vec2(atlasUV.u1 - atlasUV.u0 , atlasUV.v1 - atlasUV.v0);
+
+        while (std::getline(file, line))
+        {
+            if (line.empty() || line[0] == '#') continue;
+
+            std::istringstream iss(line);
+            std::string prefix;
+            iss >> prefix;
+
+            if (prefix == "v")
+            {
+                unsigned int idx;
+                float x, y;
+                std::string mirror_flag;
+
+                if (!(iss >> idx >> x >> y)) continue;
+
+                // Читаем опциональный флаг mirror, если он есть
+                iss >> mirror_flag;
+
+                Vertex2D vert;
+                vert.position = glm::vec2((connectedTexture.width * x - offsetx) / 3, (connectedTexture.height * y - offsety) / 3);
+
+                // Логика UV: в файле их нет.
+                // Обычно для 2D мешей без текстур UV ставят равными позиции или (0,0).
+                // Если нужна конкретная логика UV, измени здесь.
+                vert.uv = glm::vec2(x * uvScale.x + atlasUV.u0, y * uvScale.y + atlasUV.v0);
+
+                // Проверка на выход индекса за границы текущего вектора
+                if (idx >= vertices.size())
+                {
+                    vertices.resize(idx + 1);
+                }
+                vertices[idx] = vert;
+            }
+            else if (prefix == "t")
+            {
+                glm::uint i0, i1, i2;
+                if (iss >> i0 >> i1 >> i2)
+                {
+                    indices.push_back(i0);
+                    indices.push_back(i1);
+                    indices.push_back(i2);
+                }
+            }
+            // Игнорируем остальные строки (заголовки POINTS, TRIANGLES и т.д.)
+        }
+
+        return meshesRepo.add(name, Mesh(std::move(vertices), std::move(indices)));
     }
 };

@@ -13,8 +13,8 @@ module;
 #include "primitives.h"
 
 #include <cassert>
-#include <algorithm>
 #include <stdexcept>
+#include <vector>
 
 export module renderer;
 
@@ -23,6 +23,7 @@ import shader;
 import sprite;
 import sprite_repository;
 import resources;
+import mesh;
 
 #define BUFFER_OVERSIZE 50
 
@@ -46,55 +47,33 @@ private:
     static inline GLuint rbo_           = 0;
 
     static inline Shader* sprite_shader_      = nullptr;
+    static inline Shader* mesh_shader_        = nullptr;
     static inline Shader* postprocess_shader_ = nullptr;
 
     static inline int window_width_  = 0;
     static inline int window_height_ = 0;
 
-    static inline GLuint sprite_vao_ = 0;
-    static inline GLuint quad_vao_   = 0;
-    static inline GLuint instance_vbo_ = 0;  // Вынесен в статику — не пересоздаём каждый кадр
+    static inline GLuint sprite_vao_   = 0;
+    static inline GLuint quad_vao_     = 0;
+    static inline GLuint instance_vbo_ = 0;
 
-    // Репозиторий спрайтов (владение не наше, только указатель)
     static inline SpritesRepository* repo_ = nullptr;
-
-    // Буфер для передачи отсортированных данных в GPU
-    //static inline std::vector<SpriteData> instance_data_;
+    static inline std::vector<Mesh*>* meshes_;
 
     static inline bool initialized_ = false;
 
-    // Собирает отсортированные SpriteData из репозитория
-    // static void prepare_instances()
-    // {
-    //     if (!repo_) return;
-    //
-    //     // Сортируем индексы по глубине внутри репозитория
-    //     repo_->sort();
-    //
-    //     const SpriteData* raw_data   = repo_->getDataPointer();
-    //     const size_t*     indices    = repo_->getIndicesPointer();
-    //     const size_t      count      = repo_->getIndicesSize();
-    //
-    //     if (!raw_data || !indices) return;
-    //
-    //     // Копируем данные в порядке сортировки
-    //     instance_data_.clear();
-    //     instance_data_.reserve(count);
-    //     for (size_t i = 0; i < count; ++i)
-    //         instance_data_.push_back(raw_data[indices[i]]);
-    // }
-
 public:
-    // Инициализация. repo — репозиторий спрайтов (должен жить дольше Renderer-а)
-    static void init(GLFWwindow* window, SpritesRepository* repo)
+    static void init(GLFWwindow* window, SpritesRepository* repo, std::vector<Mesh*>* meshes)
     {
         if (initialized_) return;
 
         repo_ = repo;
+        meshes_ = meshes;
 
         glfwGetFramebufferSize(window, &window_width_, &window_height_);
 
         sprite_shader_      = new Shader("res/shaders/sprite");
+        mesh_shader_        = new Shader("res/shaders/mesh");
         postprocess_shader_ = new Shader("res/shaders/postprocess");
 
         glfwSwapInterval(0);
@@ -104,7 +83,6 @@ public:
             glGenVertexArrays(1, &sprite_vao_);
             glBindVertexArray(sprite_vao_);
 
-            // Квад из 6 вершин (2 треугольника) — без EBO, для совместимости с instancing
             GLuint vbo;
             glGenBuffers(1, &vbo);
             glBindBuffer(GL_ARRAY_BUFFER, vbo);
@@ -122,19 +100,17 @@ public:
             glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(glm::float32), (void*)0);
             glEnableVertexAttribArray(0);
 
-            // Instance VBO — данные пересоздаются каждый кадр
             glGenBuffers(1, &instance_vbo_);
             glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
 
-            // Настраиваем атрибуты инстансинга заранее (один раз в VAO)
-            // Структура SpriteData (alignas(16)):
-            //   offset  0: width       (float)
-            //   offset  4: height      (float)
-            //   offset  8: angle       (float)
-            //   offset 12: position_x  (float)
-            //   offset 16: position_y  (float)
-            //   offset 20: paralax     (float)
-            //   offset 24: uvRect      (uv_rect = 4 float = u0,v0,u1,v1)
+            // SpriteData layout:
+            //   offset  0: width      (float) → loc 2
+            //   offset  4: height     (float) → loc 3
+            //   offset  8: angle      (float) → loc 4
+            //   offset 12: position_x (float) → loc 5 (vec2 с position_y)
+            //   offset 16: position_y (float)
+            //   offset 20: paralax    (float) → loc 6
+            //   offset 24: uvRect     (vec4)  → loc 7
 
             glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, width));
@@ -151,7 +127,6 @@ public:
             glEnableVertexAttribArray(4);
             glVertexAttribDivisor(4, 1);
 
-            // position_x и position_y идут подряд → передаём как vec2
             glVertexAttribPointer(5, 2, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, position_x));
             glEnableVertexAttribArray(5);
@@ -162,7 +137,6 @@ public:
             glEnableVertexAttribArray(6);
             glVertexAttribDivisor(6, 1);
 
-            // uv_rect {u0,v0,u1,v1} → vec4
             glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, uvRect));
             glEnableVertexAttribArray(7);
@@ -206,8 +180,10 @@ public:
             resize(w);
         });
 
+        // Depth test включён — аппаратная сортировка по глубине для спрайтов и мешей.
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LESS);
         glDisable(GL_CULL_FACE);
-        glDisable(GL_DEPTH_TEST);
 
         initialized_ = true;
     }
@@ -221,27 +197,15 @@ public:
 
         camera::set_frame_size(buffer_width, buffer_height);
 
-        // Освобождаем старые ресурсы при ресайзе
         if (fbo_)           glDeleteFramebuffers(1, &fbo_);
         if (color_texture_) glDeleteTextures(1, &color_texture_);
         if (rbo_)           glDeleteRenderbuffers(1, &rbo_);
 
-        // Создаём цветовую текстуру
-        // glGenTextures(1, &color_texture_);
-        // glBindTexture(GL_TEXTURE_2D, color_texture_);
-        // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, buffer_width, buffer_height,
-        //              0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        // glBindTexture(GL_TEXTURE_2D, 0);
-
-        // Создаём depth/stencil RBO
         glGenRenderbuffers(1, &rbo_);
         glBindRenderbuffer(GL_RENDERBUFFER, rbo_);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, buffer_width, buffer_height);
         glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
-        // Создаём FBO
         glGenFramebuffers(1, &fbo_);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
@@ -255,32 +219,28 @@ public:
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    static void render(float time = 0)
+    // Рендер всех спрайтов из репозитория.
+    // Сортировка на CPU убрана — глубина обрабатывается depth test'ом.
+    static void renderSprites(float time = 0)
     {
         if (!initialized_ || !repo_) return;
 
-        // prepare_instances();
-
-        // === Этап 1: Рендер спрайтов в FBO ===
-
-        // Биндим атлас из репозитория
-        repo_->atlas.bind(sprite_shader_);
-
-        // glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
-        // glViewport(0, 0, window_width_ + BUFFER_OVERSIZE, window_height_ + BUFFER_OVERSIZE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, window_width_, window_height_);
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_TRUE);
+
+        repo_->atlas.bind(sprite_shader_);
 
         sprite_shader_->use();
         sprite_shader_->set_uniform("uView", camera::get_view());
-        sprite_shader_->set_uniform("uLightPos", glm::vec2(std::cos(time) * 500, std::sin(time) * 500));
+        sprite_shader_->set_uniform("uLightPos",
+            glm::vec2(std::cos(time) * 500, std::sin(time) * 500));
 
-        // Обновляем instance VBO текущими данными (STREAM — данные меняются каждый кадр)
         glBindVertexArray(sprite_vao_);
         glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
         glBufferData(GL_ARRAY_BUFFER,
@@ -292,28 +252,54 @@ public:
         glDrawArraysInstanced(GL_TRIANGLES, 0, 6,
                               static_cast<GLsizei>(repo_->getDataSize()));
         glBindVertexArray(0);
+    }
 
-        // // === Этап 2: Постпроцессинг на экран ===
-        // glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        // glViewport(0, 0, window_width_, window_height_);
-        // glClear(GL_COLOR_BUFFER_BIT);
-        //
-        // postprocess_shader_->use();
-        // glActiveTexture(GL_TEXTURE0);
-        // glBindTexture(GL_TEXTURE_2D, color_texture_);
-        // postprocess_shader_->set_uniform("screenTexture", 0);
-        // postprocess_shader_->set_uniform("resolution",
-        //                                  glm::vec2(window_width_, window_height_));
-        //
-        // glBindVertexArray(quad_vao_);
-        // glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-        // glBindVertexArray(0);
-        //
-        // glDisable(GL_BLEND);
+    // Рендер одного меша.
+    // Если меш помечен как dirty — автоматически загружает данные на GPU перед рисованием.
+    // Шейдер "res/shaders/mesh" получает:
+    //   layout(location=0) vec2 aPosition
+    //   layout(location=1) vec2 aUV
+    //   uniform mat4  uView
+    //   uniform float uDepth
+    static void renderMeshes()
+    {
+        if (!initialized_) return;
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, window_width_, window_height_);
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_TRUE);
+
+        repo_->atlas.bind(mesh_shader_);
+
+        for (Mesh* mesh : *meshes_) {
+            if (mesh->is_dirty()) mesh->upload();
+
+            mesh_shader_->use();
+            mesh_shader_->set_uniform("uView",  camera::get_view());
+            mesh_shader_->set_uniform("uLightPos", glm::vec2(500, 500));
+            mesh_shader_->set_uniform("iParalax", 1.0f);
+            mesh_shader_->set_uniform("iPos", glm::vec2(0, 0));
+            mesh_shader_->set_uniform("iAngle", 0.0f);
+            mesh_shader_->set_uniform("iDepth", 0.5f);
+
+            glBindVertexArray(mesh->vao());
+            glDrawElements(GL_TRIANGLES, mesh->index_count(), GL_UNSIGNED_INT, nullptr);
+            glBindVertexArray(0);
+        }
+    }
+
+    static void renderAll()
+    {
+        renderSprites();
+        renderMeshes();
     }
 
     // Добавление спрайта через репозиторий.
-    // Возвращает индекс в SpritesRepository для последующего управления.
     static void register_sprite(const SpriteData& data, float depth, size_t texture_desc)
     {
         assert(repo_ != nullptr && "Renderer not initialized with a SpritesRepository");

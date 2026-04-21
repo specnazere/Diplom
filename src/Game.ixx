@@ -11,6 +11,7 @@ module;
 #include <stdexcept>
 #include <string>
 #include <set>
+#include <vector>
 
 export module game;
 
@@ -21,6 +22,7 @@ import locale;
 import font;
 import text_box;
 import atlas;
+import mesh;
 
 // Вызывается из main.cpp как game::run()
 export
@@ -86,14 +88,19 @@ namespace game
         if (!atlas)
             throw std::runtime_error("Failed to create texture atlas");
 
+        size_t spaceshipMesh = res.load_mesh_from_file("res/textures/spaceship/mesh.txt", "spaceship_color", "spaceship_mesh", *atlas);
+        Mesh meshToRender = res.meshesRepo[spaceshipMesh].object;
+
         // === Инициализация репозитория спрайтов ===
         // Перемещаем атлас в репозиторий (он там хранится по значению)
         SpritesRepository repo;
         repo.atlas = std::move(*atlas);
+        std::vector<Mesh*> meshesToRender;
+        meshesToRender.push_back(&meshToRender);
         // delete atlas;
 
         // === Инициализация рендерера ===
-        Renderer::init(window, &repo);
+        Renderer::init(window, &repo, &meshesToRender);
 
         // === Создание текстового блока ===
         // Text_box text(repo);
@@ -132,7 +139,8 @@ namespace game
             // last_time = current_time;
 
             glfwPollEvents();
-            Renderer::render(time);
+            //Renderer::renderSprites(time);
+            Renderer::renderAll();
             glfwSwapBuffers(window);
         }
 
