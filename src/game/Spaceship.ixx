@@ -37,10 +37,10 @@ public:
 
                 // 2. Применяем физику к мешу
                 // Сначала делим, чтобы создать вершины для излома
-                mesh_.subdivide_in_radius(epicenter->position, epicenter->radius * 3);
+                //mesh_.subdivide_in_radius(epicenter->position, epicenter->radius * 3);
 
                 // Потом раздвигаем
-                mesh_.displace_vertices(epicenter->position, epicenter->power * 3, epicenter->radius * 2);
+                //mesh_.displace_vertices(epicenter->position, epicenter->power * 3, epicenter->radius * 2);
 
                 // 3. Генерация новых эпицентров
                 // Важно: newFollowings может вернуть пустой вектор

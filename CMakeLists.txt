@@ -60,6 +60,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 
         src/game/Spaceship.ixx
         src/game/Destruction.ixx
+        src/game/DestructibleObject.ixx
 
         src/misc/Multitype_index_repository.ixx
 

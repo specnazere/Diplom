@@ -24,7 +24,7 @@ import font;
 import text_box;
 import atlas;
 import mesh;
-import spacehip;
+import destructible_object;
 import destruction;
 
 // Вызывается из main.cpp как game::run()
@@ -92,16 +92,16 @@ namespace game
             throw std::runtime_error("Failed to create texture atlas");
 
         size_t spaceshipMesh = res.load_mesh_from_file("res/textures/spaceship/mesh.txt", "spaceship_color", "spaceship_mesh", *atlas);
-        Spaceship ship = Spaceship(res.meshesRepo[spaceshipMesh].object);
+        DestructibleObject ship = DestructibleObject(res.meshesRepo[spaceshipMesh].object);
 
         // === Инициализация репозитория спрайтов ===
         // Перемещаем атлас в репозиторий (он там хранится по значению)
         SpritesRepository repo;
         repo.atlas = std::move(*atlas);
         std::vector<Mesh*> meshesToRender;
-        ship.addToDraw(meshesToRender);
-        destruction::DestructionRailgun dest(40, 2, glm::vec2(-300, 0), 0);
-        ship.applyDestruction(dest);
+        meshesToRender.emplace_back(&ship.render_mesh());
+        // destruction::DestructionRailgun dest(40, 2, glm::vec2(-300, 0), 0);
+        // ship.applyDestruction(dest);
 
         // === Инициализация рендерера ===
         Renderer::init(window, &repo, &meshesToRender);
