@@ -10,6 +10,8 @@ void on_assert(int signal) {
 }
 
 int main() {
+    srand(time(NULL));
+
     // int return_value = 0;
     // try {
     //     return_value = game::run();

@@ -26,6 +26,7 @@ import resources;
 import mesh;
 
 #define BUFFER_OVERSIZE 50
+#define DEBUG_WIREFRAME
 
 export
 enum class render_layer
@@ -49,6 +50,9 @@ private:
     static inline Shader* sprite_shader_      = nullptr;
     static inline Shader* mesh_shader_        = nullptr;
     static inline Shader* postprocess_shader_ = nullptr;
+#ifdef DEBUG_WIREFRAME
+    static inline Shader* wireframe_shader_   = nullptr;
+#endif
 
     static inline int window_width_  = 0;
     static inline int window_height_ = 0;
@@ -75,6 +79,9 @@ public:
         sprite_shader_      = new Shader("res/shaders/sprite");
         mesh_shader_        = new Shader("res/shaders/mesh");
         postprocess_shader_ = new Shader("res/shaders/postprocess");
+#ifdef DEBUG_WIREFRAME
+        wireframe_shader_ = new Shader("res/shaders/flatBlack");
+#endif
 
         glfwSwapInterval(0);
 
@@ -225,11 +232,6 @@ public:
     {
         if (!initialized_ || !repo_) return;
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, window_width_, window_height_);
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(GL_TRUE);
@@ -265,11 +267,6 @@ public:
     {
         if (!initialized_) return;
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, window_width_, window_height_);
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(GL_TRUE);
@@ -290,11 +287,37 @@ public:
             glBindVertexArray(mesh->vao());
             glDrawElements(GL_TRIANGLES, mesh->index_count(), GL_UNSIGNED_INT, nullptr);
             glBindVertexArray(0);
+
+#ifdef DEBUG_WIREFRAME
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glDisable(GL_DEPTH_TEST);
+            glDisable(GL_BLEND);
+            glLineWidth(1.5f);
+
+            wireframe_shader_->use();
+            wireframe_shader_->set_uniform("uView", camera::get_view());
+            glBindVertexArray(mesh->vao());
+            glDrawElements(GL_TRIANGLES, mesh->index_count(), GL_UNSIGNED_INT, nullptr);
+            glBindVertexArray(0);
+
+            glEnable(GL_BLEND);
+            glEnable(GL_DEPTH_TEST);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+#endif
         }
+    }
+
+    static void prepareConsts()
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, window_width_, window_height_);
+        glClearColor(0.2f, 0.2f, 0.5f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
 
     static void renderAll()
     {
+        prepareConsts();
         renderSprites();
         renderMeshes();
     }

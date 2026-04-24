@@ -57,7 +57,12 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/graphics/Locale.ixx
         src/graphics/Sprites_repository.ixx
         src/graphics/Mesh.ixx
+
+        src/game/Spaceship.ixx
+        src/game/Destruction.ixx
+
         src/misc/Multitype_index_repository.ixx
+
         src/Game.ixx
 )
 

@@ -372,7 +372,7 @@ public:
                 iss >> mirror_flag;
 
                 Vertex2D vert;
-                vert.position = glm::vec2((connectedTexture.width * x - offsetx) / 3, (connectedTexture.height * y - offsety) / 3);
+                vert.position = glm::vec2((connectedTexture.width * x - offsetx), (connectedTexture.height * y - offsety));
 
                 // Логика UV: в файле их нет.
                 // Обычно для 2D мешей без текстур UV ставят равными позиции или (0,0).

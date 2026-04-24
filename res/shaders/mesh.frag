@@ -12,10 +12,10 @@ uniform sampler2D normalSampler;
 uniform vec2 uLightPos;
 
 // Настройки света (можно вынести в uniform, если нужно менять динамически)
-const float LIGHT_HEIGHT = 200.0;      // Высота источника над экраном (влияет на угол падения)
-const float LIGHT_INTENSITY = 2;
+const float LIGHT_HEIGHT = 2000.0;      // Высота источника над экраном (влияет на угол падения)
+const float LIGHT_INTENSITY = 0;
 const float AMBIENT_STRENGTH = 1;
-const float SPECULAR_STRENGTH = 0.2;
+const float SPECULAR_STRENGTH = 0;
 const float SHININESS = 10.0;
 
 void main() {

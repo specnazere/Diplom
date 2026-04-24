@@ -7,6 +7,7 @@ module;
 
 #include "glad/glad.h"
 #include "GLFW/glfw3.h"
+#include "glm/glm.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -23,6 +24,8 @@ import font;
 import text_box;
 import atlas;
 import mesh;
+import spacehip;
+import destruction;
 
 // Вызывается из main.cpp как game::run()
 export
@@ -36,7 +39,7 @@ namespace game
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-        GLFWwindow* window = glfwCreateWindow(800, 600, "Hello World!", nullptr, nullptr);
+        GLFWwindow* window = glfwCreateWindow(2200, 1200, "Hello World!", nullptr, nullptr);
         if (!window) {
             const char* err_buffer = nullptr;
             glfwGetError(&err_buffer);
@@ -89,15 +92,16 @@ namespace game
             throw std::runtime_error("Failed to create texture atlas");
 
         size_t spaceshipMesh = res.load_mesh_from_file("res/textures/spaceship/mesh.txt", "spaceship_color", "spaceship_mesh", *atlas);
-        Mesh meshToRender = res.meshesRepo[spaceshipMesh].object;
+        Spaceship ship = Spaceship(res.meshesRepo[spaceshipMesh].object);
 
         // === Инициализация репозитория спрайтов ===
         // Перемещаем атлас в репозиторий (он там хранится по значению)
         SpritesRepository repo;
         repo.atlas = std::move(*atlas);
         std::vector<Mesh*> meshesToRender;
-        meshesToRender.push_back(&meshToRender);
-        // delete atlas;
+        ship.addToDraw(meshesToRender);
+        destruction::DestructionRailgun dest(40, 2, glm::vec2(-300, 0), 0);
+        ship.applyDestruction(dest);
 
         // === Инициализация рендерера ===
         Renderer::init(window, &repo, &meshesToRender);
@@ -111,13 +115,13 @@ namespace game
         // text.set_pos(-100, -300);
         // text.set_width(650);
         // text.bake_text();
-        for (int i = 0; i < 1; i += 1) {
-            size_t spriteindex = repo.addSprite({}, 0);
-            auto& spriteData = repo.dataFromSpriteIdx(spriteindex);
-            spriteData.width = 1959 / 3;
-            spriteData.height = 1024 / 3;
-            spriteData.uvRect = repo.atlas.get_uv(spaceshipTexture);
-        }
+        // for (int i = 0; i < 1; i += 1) {
+        //     size_t spriteindex = repo.addSprite({}, 0);
+        //     auto& spriteData = repo.dataFromSpriteIdx(spriteindex);
+        //     spriteData.width = 1959 / 3;
+        //     spriteData.height = 1024 / 3;
+        //     spriteData.uvRect = repo.atlas.get_uv(spaceshipTexture);
+        // }
 
         // === Игровой цикл ===
         double last_time = glfwGetTime();
@@ -127,7 +131,7 @@ namespace game
 
         while (!glfwWindowShouldClose(window))
         {
-            time += 0.0006;
+            time += 0.006;
             // const double current_time = glfwGetTime();
             // const double delta        = current_time - last_time;
             //
@@ -139,7 +143,6 @@ namespace game
             // last_time = current_time;
 
             glfwPollEvents();
-            //Renderer::renderSprites(time);
             Renderer::renderAll();
             glfwSwapBuffers(window);
         }
