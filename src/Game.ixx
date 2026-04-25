@@ -93,6 +93,7 @@ namespace game
 
         size_t spaceshipMesh = res.load_mesh_from_file("res/textures/spaceship/mesh.txt", "spaceship_color", "spaceship_mesh", *atlas);
         DestructibleObject ship = DestructibleObject(res.meshesRepo[spaceshipMesh].object);
+        ship.apply_damage(glm::vec2(10, 0), 100.0f, 100.0f);
 
         // === Инициализация репозитория спрайтов ===
         // Перемещаем атлас в репозиторий (он там хранится по значению)

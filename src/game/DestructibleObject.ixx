@@ -628,32 +628,32 @@ public:
     //  radius — радиус зоны урона; damage — сколько HP отнять.
     //  Возвращает true, если хотя бы один воксель был изменён.
     // -----------------------------------------------------------------------
-    bool apply_damage(glm::vec2 point, float radius, float damage)
-    {
-        bool changed = false;
-        float r2 = radius * radius;
-
-        for (auto& v : voxels_)
-        {
-            if (!v.is_alive()) continue;
-            if (glm::distance2(v.position(), point) > r2) continue;
-
-            v.hp = std::max(0.f, v.hp - damage);
-            if (v.hp <= 0.f)
-            {
-                v.status = VoxelStatus::Absent;
-                changed  = true;
-            }
-        }
-
-        if (changed)
-        {
-            // Пересчитаем граничные/внутренние после разрушения
-            recalc_boundary();
-            rebuild_render_mesh();
-        }
-        return changed;
-    }
+    // bool apply_damage(glm::vec2 point, float radius, float damage)
+    // {
+    //     bool changed = false;
+    //     float r2 = radius * radius;
+    //
+    //     for (auto& v : voxels_)
+    //     {
+    //         if (!v.is_alive()) continue;
+    //         if (glm::distance2(v.position(), point) > r2) continue;
+    //
+    //         v.hp = std::max(0.f, v.hp - damage);
+    //         if (v.hp <= 0.f)
+    //         {
+    //             v.status = VoxelStatus::Absent;
+    //             changed  = true;
+    //         }
+    //     }
+    //
+    //     if (changed)
+    //     {
+    //         // Пересчитаем граничные/внутренние после разрушения
+    //         recalc_boundary();
+    //         rebuild_render_mesh();
+    //     }
+    //     return changed;
+    // }
 
     // -----------------------------------------------------------------------
     //  Принудительно пересобрать рендер-меш (если воксели изменены снаружи)
@@ -719,21 +719,204 @@ public:
         render_mesh_.set(std::move(verts), std::move(inds));
     }
 
-// -----------------------------------------------------------------------
-private:
-// -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    //  Разрушение
+    // -----------------------------------------------------------------------
 
-    const Mesh& source_;      // исходный меш — только для чтения
-    Params      params_;
-    Mesh        render_mesh_; // текущий рендер-меш (пересобирается при разрушении)
+    // Наносит урон в точке world_pos с радиусом damage_radius
+    // Возвращает true, если что-то изменилось (нужен пересчет меша)
+    bool apply_damage(const glm::vec2& world_pos, float damage, float radius = 0.f)
+    {
+        bool changed = false;
+
+        // Определяем диапазон ячеек для проверки (оптимизация: не перебирать всю сетку)
+        int start_col = static_cast<int>((world_pos.x - radius - min_x) / params_.cell_size);
+        int end_col = static_cast<int>((world_pos.x + radius - min_x) / params_.cell_size) + 1;
+        int start_row = static_cast<int>((world_pos.y - radius - min_y) / params_.cell_size);
+        int end_row = static_cast<int>((world_pos.y + radius - min_y) / params_.cell_size) + 1;
+
+        // Ограничиваем границами массива
+        start_col = std::max(0, start_col);
+        end_col = std::min(cols_, end_col);
+        start_row = std::max(0, start_row);
+        end_row = std::min(rows_, end_row);
+
+        // 1. Наносим прямой урон вокселям в радиусе
+        for (int r = start_row; r < end_row; ++r) {
+            for (int c = start_col; c < end_col; ++c) {
+                Voxel& vx = voxels_[r * cols_ + c];
+
+                // Пропускаем уже мертвые
+                if (vx.status == VoxelStatus::Absent) continue;
+
+                float dist_sq = glm::length2(vx.center - world_pos);
+                float rad_sq = radius * radius;
+
+                // Если радиус > 0, проверяем попадание в круг. Если 0 — точечное попадание в ячейку
+                if (radius > 0.f && dist_sq > rad_sq) continue;
+
+                vx.hp -= damage;
+                if (vx.hp <= 0.f) {
+                    vx.hp = 0.f;
+                    if (vx.status != VoxelStatus::Absent) {
+                        vx.status = VoxelStatus::Absent;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        // 2. Обновляем статусы соседей (Cascade update)
+        // Если воксель стал Absent, его соседи Interior должны проверить, не стали ли они Boundary.
+        // Если воксель был Boundary и стал Absent, это уже учтено выше.
+
+        if (changed) {
+            //update_neighbors_status(start_col, end_col, start_row, end_row);
+            rebuild_render_mesh();
+        }
+
+        return changed;
+    }
+
+private:
+    // Обновляет статусы вокселей в указанном диапазоне и их соседей
+    void update_neighbors_status(int min_c, int max_c, int min_r, int max_r)
+    {
+        // Расширяем диапазон на 1 пиксель во все стороны, чтобы захватить соседей измененных ячеек
+        min_c = std::max(0, min_c - 1);
+        max_c = std::min(cols_, max_c + 1);
+        min_r = std::max(0, min_r - 1);
+        max_r = std::min(rows_, max_r + 1);
+
+        constexpr int dx[4] = {1, -1, 0, 0};
+        constexpr int dy[4] = {0, 0, 1, -1};
+
+        for (int r = min_r; r < max_r; ++r) {
+            for (int c = min_c; c < max_c; ++c) {
+                Voxel& vx = voxels_[r * cols_ + c];
+
+                // Нас интересуют только живые воксели, которые НЕ являются Boundary
+                // (Boundary пересчитаются автоматически при проверке соседей,
+                // а Interior могут стать Boundary)
+                if (vx.status == VoxelStatus::Absent) continue;
+
+                // Проверяем, есть ли рядом Absent сосед
+                bool has_absent_neighbor = false;
+                for (int d = 0; d < 4; ++d) {
+                    int nc = c + dx[d];
+                    int nr = r + dy[d];
+
+                    if (nc >= 0 && nc < cols_ && nr >= 0 && nr < rows_) {
+                        if (voxels_[nr * cols_ + nc].status == VoxelStatus::Absent) {
+                            has_absent_neighbor = true;
+                            break;
+                        }
+                    } else {
+                        // Выход за границы сетки считаем пустотой
+                        has_absent_neighbor = true;
+                        break;
+                    }
+                }
+
+                if (has_absent_neighbor) {
+                    if (vx.status == VoxelStatus::Interior) {
+                        vx.status = VoxelStatus::Boundary;
+
+                        // Пересчитываем offset и UV для нового Boundary
+                        recalculate_boundary_voxel(vx, c, r);
+                    }
+                    // Если он уже Boundary, оставляем как есть (offset уже верный)
+                } else {
+                    // Если соседей Absent нет, а воксель был Boundary (например, дырка закрылась другим куском?
+                    // В нашей логике дырки не зарастают, но если структура сложная...)
+                    // То он должен стать Interior? Нет, в деструктивной геометрии дырки остаются.
+                    // Но если мы удалили "шум" вокруг, то Boundary может стать Interior?
+                    // Обычно нет. Boundary остается Boundary, пока сам не умрет.
+                }
+            }
+        }
+    }
+
+    // Пересчет смещения для одного граничного вокселя (копия логики из build_voxels)
+    void recalculate_boundary_voxel(Voxel& vx, int col, int row)
+    {
+        if (outer_mesh_.empty()) return;
+
+        glm::vec2 closest_point = vx.center;
+        float min_dist_sq = std::numeric_limits<float>::max();
+        const size_t contour_size = outer_mesh_.size();
+
+        // Диапазон для UV
+        // Примечание: src_w/h и uv_min лучше сохранить как члены класса или пересчитать,
+        // но для простоты продублируем логику AABB из конструктора, если нужно.
+        // Для оптимизации можно вынести расчет UV-базы в отдельную структуру.
+        // Здесь используем упрощенный вариант: берем UV из центра, если проекция сложна,
+        // или делаем полную проекцию.
+
+        // Полная проекция (как в build_voxels):
+        for (size_t i = 0; i < contour_size; ++i) {
+            const auto& A = outer_mesh_[i].position;
+            const auto& B = outer_mesh_[(i + 1) % contour_size].position;
+
+            glm::vec2 AB = B - A;
+            glm::vec2 AP = vx.center - A;
+            float len_sq_AB = glm::dot(AB, AB);
+            if (len_sq_AB < 1e-6f) continue;
+
+            float t = glm::clamp(glm::dot(AP, AB) / len_sq_AB, 0.f, 1.f);
+            glm::vec2 proj = A + t * AB;
+            float dist_sq = glm::length2(vx.center - proj);
+
+            if (dist_sq < min_dist_sq) {
+                min_dist_sq = dist_sq;
+                closest_point = proj;
+            }
+        }
+
+        vx.offset = closest_point - vx.center;
+
+        // UV: упрощенно берем от центра, так как пересчет полного AABB здесь дорог.
+        // Для идеального качества нужно хранить min/max исходного меша в классе.
+        // Предположим, что у нас есть доступ к origin_ и размерам, как в build_voxels.
+        // Если нет, можно оставить UV как было (ошибка будет малозаметна)
+        // или реализовать хранение src_w/h/uv_min в классе DestructibleObject.
+
+        // ВАЖНО: Чтобы UV работал корректно, добавь в класс поля:
+        // float src_w_, src_h_, uv_min_x_, uv_min_y_;
+        // и заполни их в build_voxels().
+
+        // if (src_w_ > 1e-5f && src_h_ > 1e-5f) {
+        // }
+        vx.uv = {
+            (vx.position().x - min_x) * width_scale + min_u,
+            (vx.position().y - min_y) * height_scale + min_v
+        };
+    }
+
+    // -----------------------------------------------------------------------
+
+    const Mesh& source_; // исходный меш — только для чтения
+    Params params_;
+    Mesh render_mesh_; // текущий рендер-меш (пересобирается при разрушении)
 
     std::vector<Voxel> voxels_; // линейный массив, индекс = row*cols_ + col
     std::vector<Vertex2D> outer_mesh_;
 
-    int   cols_  = 0;
-    int   rows_  = 0;
-    float origin_x_ = 0.f;
-    float origin_y_ = 0.f;
+    int cols_ = 0;
+    int rows_ = 0;
+
+    float min_x;
+    float max_x;
+    float min_y;
+    float max_y;
+
+    float min_u;
+    float max_u;
+    float min_v;
+    float max_v;
+
+    float width_scale;
+    float height_scale;
 
     // -----------------------------------------------------------------------
     //  Построить воксельную сетку по исходному мешу
@@ -742,7 +925,6 @@ private:
     {
         if (source_.vertices.empty()) {
             cols_ = rows_ = 0;
-            origin_x_ = origin_y_ = 0.f;
             voxels_.clear();
             return;
         }
@@ -750,17 +932,17 @@ private:
         // -----------------------------------------------------------------------
         // 1. Расчёт габаритов сетки (AABB + Padding)
         // -----------------------------------------------------------------------
-        float min_x = source_.vertices[0].position.x;
-        float max_x = min_x;
-        float min_y = source_.vertices[0].position.y;
-        float max_y = min_y;
+        min_x = source_.vertices[0].position.x;
+        max_x = min_x;
+        min_y = source_.vertices[0].position.y;
+        max_y = min_y;
 
-        float min_u = source_.vertices[0].uv.x;
-        float max_u = min_x;
-        float min_v = source_.vertices[0].uv.y;
-        float max_v = min_y;
+        min_u = source_.vertices[0].uv.x;
+        max_u = min_x;
+        min_v = source_.vertices[0].uv.y;
+        max_v = min_y;
 
-        for (const auto& v : source_.vertices) {
+        for (const auto& v: source_.vertices) {
             min_x = std::min(min_x, v.position.x);
             max_x = std::max(max_x, v.position.x);
             min_y = std::min(min_y, v.position.y);
@@ -771,10 +953,8 @@ private:
             min_v = std::min(min_v, v.uv.y);
             max_v = std::max(max_v, v.uv.y);
         }
-
-        const float pad = 3.0f * params_.cell_size;
-        // min_x -= pad; max_x += pad;
-        // min_y -= pad; max_y += pad;
+        width_scale = (max_u - min_u) / (max_x - min_x);
+        height_scale = (max_v - min_v) / (max_y - min_y);
 
         cols_ = static_cast<int>(std::ceil((max_x - min_x) / params_.cell_size));
         rows_ = static_cast<int>(std::ceil((max_y - min_y) / params_.cell_size));
@@ -784,14 +964,9 @@ private:
             voxels_.clear();
             return;
         }
-
-        origin_x_ = min_x;
-        origin_y_ = min_y;
         voxels_.resize(cols_ * rows_);
 
         // Диапазон для UV (исходный меш без паддинга)
-        float width_scale =  (max_u - min_u) / (max_x - min_x);
-        float height_scale = (max_v - min_v) / (max_y - min_y);
         // const float src_w = std::max(1e-5f, (max_x - min_x - 2.f * pad));
         // const float src_h = std::max(1e-5f, (max_y - min_y - 2.f * pad));
         // const float uv_min_x = min_x + pad;
@@ -808,8 +983,8 @@ private:
             for (int col = 0; col < cols_; ++col) {
                 Voxel& vx = voxels_[row * cols_ + col];
                 vx.center = {
-                    origin_x_ + (col + 0.5f) * params_.cell_size,
-                    origin_y_ + (row + 0.5f) * params_.cell_size
+                    min_x + (col + 0.5f) * params_.cell_size,
+                    min_y + (row + 0.5f) * params_.cell_size
                 };
                 vx.hp = params_.default_hp;
                 vx.status = VoxelStatus::Absent; // По умолчанию пусто
@@ -826,7 +1001,7 @@ private:
 
                     // UV для внутренних точек
                     vx.uv = {
-                        (vx.position().x - min_x) * width_scale +  min_u,
+                        (vx.position().x - min_x) * width_scale + min_u,
                         (vx.position().y - min_y) * height_scale + min_v
                     };
                 }
@@ -903,7 +1078,7 @@ private:
 
                     // UV для граничных точек берём по проекции на поверхность
                     vx.uv = {
-                        (closest_point.x - min_x) * width_scale +  min_u,
+                        (closest_point.x - min_x) * width_scale + min_u,
                         (closest_point.y - min_y) * height_scale + min_v
                     };
                 }

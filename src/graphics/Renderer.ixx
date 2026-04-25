@@ -26,7 +26,7 @@ import resources;
 import mesh;
 
 #define BUFFER_OVERSIZE 50
-//#define DEBUG_WIREFRAME
+#define DEBUG_WIREFRAME
 
 export
 enum class render_layer
