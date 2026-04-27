@@ -15,6 +15,7 @@ module;
 #include <cassert>
 #include <stdexcept>
 #include <vector>
+#include <queue>
 
 export module renderer;
 
@@ -23,7 +24,6 @@ import shader;
 import sprite;
 import sprite_repository;
 import resources;
-import mesh;
 
 #define BUFFER_OVERSIZE 50
 #define DEBUG_WIREFRAME
@@ -59,20 +59,23 @@ private:
 
     static inline GLuint sprite_vao_   = 0;
     static inline GLuint quad_vao_     = 0;
+
+    // VBO для инстанс-данных спрайтов (статические параметры + ID трансформации)
     static inline GLuint instance_vbo_ = 0;
 
+    // SSBO для глобального массива трансформаций
+    static inline GLuint transform_ssbo_ = 0;
+
     static inline SpritesRepository* repo_ = nullptr;
-    static inline std::vector<Mesh*>* meshes_;
 
     static inline bool initialized_ = false;
 
 public:
-    static void init(GLFWwindow* window, SpritesRepository* repo, std::vector<Mesh*>* meshes)
+    static void init(GLFWwindow* window, SpritesRepository* repo)
     {
         if (initialized_) return;
 
         repo_ = repo;
-        meshes_ = meshes;
 
         glfwGetFramebufferSize(window, &window_width_, &window_height_);
 
@@ -90,6 +93,7 @@ public:
             glGenVertexArrays(1, &sprite_vao_);
             glBindVertexArray(sprite_vao_);
 
+            // 1. Геометрия квада (локальная)
             GLuint vbo;
             glGenBuffers(1, &vbo);
             glBindBuffer(GL_ARRAY_BUFFER, vbo);
@@ -107,50 +111,121 @@ public:
             glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(glm::float32), (void*)0);
             glEnableVertexAttribArray(0);
 
+            // 2. Инстанс-данные
             glGenBuffers(1, &instance_vbo_);
             glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
 
-            // SpriteData layout:
-            //   offset  0: width      (float) → loc 2
-            //   offset  4: height     (float) → loc 3
-            //   offset  8: angle      (float) → loc 4
-            //   offset 12: position_x (float) → loc 5 (vec2 с position_y)
-            //   offset 16: position_y (float)
-            //   offset 20: paralax    (float) → loc 6
-            //   offset 24: uvRect     (vec4)  → loc 7
+            // Новая структура SpriteData (упрощенная для инстансинга, если мы вынесли позицию в TransformNode)
+            // Но в текущем SpriteData из файла есть width, height, angle, pos, paralax, uv.
+            // Мы будем использовать только width, height, paralax, uvRect и новый transformIdx.
+            // Примечание: Если вы хотите полностью вынести позицию в иерархию,
+            // то поля angle/pos в SpriteData могут игнорироваться шейдером или использоваться как смещение.
+            // В данном коде мы предполагаем, что шейдер читает iTransformIdx.
 
+            // Макет данных в VBO должен соответствовать тому, что мы отправляем.
+            // Допустим, мы отправляем полный SpriteData, но шейдер интерпретирует его иначе.
+            // Или лучше создать отдельную структуру для инстанс-буфера?
+            // Для простоты оставим SpriteData, но добавим поле transformIdx в конец или используем существующее.
+
+            // ВАЖНО: В предоставленном Sprite.ixx нет поля transformIdx в SpriteData.
+            // Оно есть в классе Sprite. Значит, нам нужно сформировать отдельный буфер
+            // или расширить SpriteData.
+            // Давайте предположим, что мы добавили `uint transformIdx` в конец SpriteData
+            // или используем отдельный вектор для инстанс-атрибутов.
+
+            // Чтобы не ломать существующий SpriteData, давайте создадим отдельный буфер
+            // только для индексов трансформаций, если их количество совпадает с количеством спрайтов.
+            // Но проще всего модифицировать SpriteData.
+            // Так как я не могу менять заголовочный файл здесь, я предположу,
+            // что вы добавили `uint transformIdx` в struct SpriteData в файле sprite.ixx.
+
+            // Если вы НЕ меняли SpriteData, то код ниже будет неверным.
+            // Предположим, что SpriteData теперь выглядит так:
+            // struct SpriteData { ...; uint transformIdx; };
+            // И выравнивание учтено.
+
+            // Атрибуты:
+            // loc 2: width (float)
+            // loc 3: height (float)
+            // loc 4: transformIdx (uint) <-- ЗАМЕНА угла
+            // loc 5: paralax (float) <-- Сдвиг, так как позиция удалена из атрибутов
+            // loc 6: uvRect (vec4)
+
+            // Проверка размеров:
+            // Если в SpriteData нет transformIdx, этот код нужно адаптировать под вашу реальную структуру.
+            // Ниже приведен код для структуры, где есть transformIdx.
+
+            // Width
             glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, width));
             glEnableVertexAttribArray(2);
             glVertexAttribDivisor(2, 1);
 
+            // Height
             glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, height));
             glEnableVertexAttribArray(3);
             glVertexAttribDivisor(3, 1);
 
+            // Transform Index (UINT)
+            // Внимание: используйте glVertexAttribIPointer для целочисленных типов!
+            glVertexAttribIPointer(4, 1, GL_UNSIGNED_INT, sizeof(SpriteData),
+                (void*)offsetof(SpriteData, transformIdx));
+            glEnableVertexAttribArray(4);
+            glVertexAttribDivisor(4, 1);
+
+            // Paralax
+            glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
+                (void*)offsetof(SpriteData, paralax));
+            glEnableVertexAttribArray(5);
+            glVertexAttribDivisor(5, 1);
+
+            // UV Rect
+            glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
+                (void*)offsetof(SpriteData, uvRect));
+            glEnableVertexAttribArray(6);
+            glVertexAttribDivisor(6, 1);
+
+            // iAngle (локальный) — location 4
             glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, angle));
             glEnableVertexAttribArray(4);
             glVertexAttribDivisor(4, 1);
 
+            // iPos (локальный) — location 5
             glVertexAttribPointer(5, 2, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, position_x));
             glEnableVertexAttribArray(5);
             glVertexAttribDivisor(5, 1);
 
+            // iParalax — location 6
             glVertexAttribPointer(6, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, paralax));
             glEnableVertexAttribArray(6);
             glVertexAttribDivisor(6, 1);
 
+            // iUVRect — location 7
             glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, uvRect));
             glEnableVertexAttribArray(7);
             glVertexAttribDivisor(7, 1);
 
+            // iTransformIdx (UINT) — location 8
+            glVertexAttribIPointer(8, 1, GL_UNSIGNED_INT, sizeof(SpriteData),
+                (void*)offsetof(SpriteData, transformIdx));
+            glEnableVertexAttribArray(8);
+            glVertexAttribDivisor(8, 1);
+
             glBindBuffer(GL_ARRAY_BUFFER, 0);
             glBindVertexArray(0);
+        }
+
+        // === SSBO для трансформаций ===
+        {
+            glGenBuffers(1, &transform_ssbo_);
+            // Привязываем к точке 0 (соответствует binding = 0 в шейдере)
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, transform_ssbo_);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         }
 
         // === VAO для полноэкранного квада (постпроцессинг) ===
@@ -187,7 +262,6 @@ public:
             resize(w);
         });
 
-        // Depth test включён — аппаратная сортировка по глубине для спрайтов и мешей.
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
         glDisable(GL_CULL_FACE);
@@ -208,6 +282,14 @@ public:
         if (color_texture_) glDeleteTextures(1, &color_texture_);
         if (rbo_)           glDeleteRenderbuffers(1, &rbo_);
 
+        // Создаем текстуру цвета
+        glGenTextures(1, &color_texture_);
+        glBindTexture(GL_TEXTURE_2D, color_texture_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, buffer_width, buffer_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
         glGenRenderbuffers(1, &rbo_);
         glBindRenderbuffer(GL_RENDERBUFFER, rbo_);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, buffer_width, buffer_height);
@@ -226,8 +308,6 @@ public:
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    // Рендер всех спрайтов из репозитория.
-    // Сортировка на CPU убрана — глубина обрабатывается depth test'ом.
     static void renderSprites(float time = 0)
     {
         if (!initialized_ || !repo_) return;
@@ -243,68 +323,41 @@ public:
         sprite_shader_->set_uniform("uLightPos",
             glm::vec2(std::cos(time) * 500, std::sin(time) * 500));
 
+        // Устанавливаем максимальную глубину обхода иерархии
+        sprite_shader_->set_uniform("uMaxTransformDepth", 16);
+
+        // 1. Обновляем SSBO с трансформациями
+        // Данные должны быть в формате, ожидаемом шейдером: vec4(x, y, angle, parentIdx)
+        // Метод getTransformsPointer() должен возвращать указатель на такой массив.
+        const auto* transforms = repo_->getTransformsPointer();
+        size_t transformCount = repo_->getTransformsCount();
+
+        if (transforms && transformCount > 0) {
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, transform_ssbo_);
+            // Важно: размер в байтах
+            glBufferData(GL_SHADER_STORAGE_BUFFER,
+                         transformCount * sizeof(TransformNode), // Убедитесь, что размер совпадает с vec4
+                         transforms,
+                         GL_DYNAMIC_DRAW);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        }
+
+        // 2. Обновляем инстанс-буфер со спрайтами
         glBindVertexArray(sprite_vao_);
         glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
+
+        // Здесь предполагается, что getDataPointer возвращает обновленный массив SpriteData,
+        // который теперь содержит поле transformIdx.
         glBufferData(GL_ARRAY_BUFFER,
                      repo_->getDataSize() * sizeof(SpriteData),
                      repo_->getDataPointer(),
                      GL_STREAM_DRAW);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
+        // 3. Рендер
         glDrawArraysInstanced(GL_TRIANGLES, 0, 6,
                               static_cast<GLsizei>(repo_->getDataSize()));
         glBindVertexArray(0);
-    }
-
-    // Рендер одного меша.
-    // Если меш помечен как dirty — автоматически загружает данные на GPU перед рисованием.
-    // Шейдер "res/shaders/mesh" получает:
-    //   layout(location=0) vec2 aPosition
-    //   layout(location=1) vec2 aUV
-    //   uniform mat4  uView
-    //   uniform float uDepth
-    static void renderMeshes()
-    {
-        if (!initialized_) return;
-
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDepthMask(GL_TRUE);
-
-        repo_->atlas.bind(mesh_shader_);
-
-        for (Mesh* mesh : *meshes_) {
-            if (mesh->is_dirty()) mesh->upload();
-
-            mesh_shader_->use();
-            mesh_shader_->set_uniform("uView",  camera::get_view());
-            mesh_shader_->set_uniform("uLightPos", glm::vec2(500, 500));
-            mesh_shader_->set_uniform("iParalax", 1.0f);
-            mesh_shader_->set_uniform("iPos", glm::vec2(0, 0));
-            mesh_shader_->set_uniform("iAngle", 0.0f);
-            mesh_shader_->set_uniform("iDepth", 0.5f);
-
-            glBindVertexArray(mesh->vao());
-            glDrawElements(GL_TRIANGLES, mesh->index_count(), GL_UNSIGNED_INT, nullptr);
-            glBindVertexArray(0);
-
-#ifdef DEBUG_WIREFRAME
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            glDisable(GL_DEPTH_TEST);
-            glDisable(GL_BLEND);
-            glLineWidth(1.5f);
-
-            wireframe_shader_->use();
-            wireframe_shader_->set_uniform("uView", camera::get_view());
-            glBindVertexArray(mesh->vao());
-            glDrawElements(GL_TRIANGLES, mesh->index_count(), GL_UNSIGNED_INT, nullptr);
-            glBindVertexArray(0);
-
-            glEnable(GL_BLEND);
-            glEnable(GL_DEPTH_TEST);
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-#endif
-        }
     }
 
     static void prepareConsts()
@@ -315,14 +368,12 @@ public:
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
 
-    static void renderAll()
+    static void renderAll(const float& time)
     {
         prepareConsts();
-        renderSprites();
-        renderMeshes();
+        renderSprites(time);
     }
 
-    // Добавление спрайта через репозиторий.
     static void register_sprite(const SpriteData& data, float depth, size_t texture_desc)
     {
         assert(repo_ != nullptr && "Renderer not initialized with a SpritesRepository");

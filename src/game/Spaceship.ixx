@@ -8,7 +8,6 @@ module;
 
 export module spacehip;
 
-import mesh;
 import destruction;
 
 #define MIN_POWER_THRESHOLD 0
@@ -18,12 +17,10 @@ export
 class Spaceship
 {
 private:
-    Mesh mesh_;
 
 public:
-    explicit Spaceship(const Mesh& prototypeMesh)
+    explicit Spaceship()
     {
-        mesh_ = Mesh(prototypeMesh);
     }
 
     void applyDestruction(destruction::Destruction& destruction)
@@ -52,8 +49,7 @@ public:
         }
     }
 
-    void addToDraw(std::vector<Mesh*>& meshes)
+    void addToDraw()
     {
-        meshes.emplace_back(&mesh_);
     }
 };

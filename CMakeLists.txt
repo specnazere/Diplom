@@ -31,12 +31,11 @@ target_link_libraries(glad PUBLIC glfw)
 
 # Основное приложение
 add_executable(${PROJECT_NAME}
-        src/misc/Multitype_index_repository.ixx)
+        src/main.cpp)
 
 # 1. Обычные источники (main.cpp, старые .cpp библиотеки)
 # Они не являются модулями, поэтому добавляются как обычные источники
 target_sources(${PROJECT_NAME} PRIVATE
-        src/main.cpp
         thirdparty/stb/stb_realisations.cpp
         thirdparty/tinyxml2/tinyxml2.cpp
 )
@@ -56,7 +55,6 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/graphics/Resources.ixx
         src/graphics/Locale.ixx
         src/graphics/Sprites_repository.ixx
-        src/graphics/Mesh.ixx
 
         src/game/Spaceship.ixx
         src/game/Destruction.ixx

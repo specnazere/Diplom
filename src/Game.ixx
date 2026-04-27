@@ -23,9 +23,8 @@ import locale;
 import font;
 import text_box;
 import atlas;
-import mesh;
-import destructible_object;
 import destruction;
+import destructible_object;
 
 // Вызывается из main.cpp как game::run()
 export
@@ -35,7 +34,7 @@ namespace game
     {
         // === Инициализация GLFW ===
         glfwInit();
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
@@ -91,21 +90,21 @@ namespace game
         if (!atlas)
             throw std::runtime_error("Failed to create texture atlas");
 
-        size_t spaceshipMesh = res.load_mesh_from_file("res/textures/spaceship/mesh.txt", "spaceship_color", "spaceship_mesh", *atlas);
-        DestructibleObject ship = DestructibleObject(res.meshesRepo[spaceshipMesh].object);
-        ship.apply_damage(glm::vec2(10, 0), 100.0f, 100.0f);
-
         // === Инициализация репозитория спрайтов ===
         // Перемещаем атлас в репозиторий (он там хранится по значению)
         SpritesRepository repo;
         repo.atlas = std::move(*atlas);
-        std::vector<Mesh*> meshesToRender;
-        meshesToRender.emplace_back(&ship.render_mesh());
         // destruction::DestructionRailgun dest(40, 2, glm::vec2(-300, 0), 0);
         // ship.applyDestruction(dest);
+        DestructibleObject ship = DestructibleObject(
+            repo,
+            res.texturesRepo[spaceshipTexture].object,
+            atlas->get_uv(spaceshipTexture),
+            {10, 10, 0, 1, {0, 0}});
+        ship.apply_damage(glm::vec2(10, 0), 100.0f, 100.0f);
 
         // === Инициализация рендерера ===
-        Renderer::init(window, &repo, &meshesToRender);
+        Renderer::init(window, &repo);
 
         // === Создание текстового блока ===
         // Text_box text(repo);
@@ -116,11 +115,12 @@ namespace game
         // text.set_pos(-100, -300);
         // text.set_width(650);
         // text.bake_text();
+
         // for (int i = 0; i < 1; i += 1) {
         //     size_t spriteindex = repo.addSprite({}, 0);
         //     auto& spriteData = repo.dataFromSpriteIdx(spriteindex);
-        //     spriteData.width = 1959 / 3;
-        //     spriteData.height = 1024 / 3;
+        //     spriteData.width = 115 * 10;
+        //     spriteData.height = 60 * 10;
         //     spriteData.uvRect = repo.atlas.get_uv(spaceshipTexture);
         // }
 
@@ -144,7 +144,7 @@ namespace game
             // last_time = current_time;
 
             glfwPollEvents();
-            Renderer::renderAll();
+            Renderer::renderAll(time);
             glfwSwapBuffers(window);
         }
 

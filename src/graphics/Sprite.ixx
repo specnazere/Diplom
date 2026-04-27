@@ -1,14 +1,10 @@
 //
 // Created by A on 27.01.2026.
 //
-
 module;
-
 #include "glm/fwd.hpp"
-
 #include "uv_rect.h"
-
-#include <string>
+#include <cstddef>
 
 export module sprite;
 
@@ -16,11 +12,16 @@ export
 struct alignas(16) SpriteData {
     glm::float32 width = 100;
     glm::float32 height = 100;
+
+    // Локальные параметры спрайта (применяются ПОСЛЕ глобальной трансформации)
     glm::float32 angle{};
     glm::float32 position_x{};
     glm::float32 position_y{};
+
     glm::float32 paralax = 1.0f;
     uv_rect uvRect;
+
+    unsigned int transformIdx = 0xFFFFFFFFu;
 };
 
 export
@@ -33,18 +34,39 @@ struct SpriteInitData {
     glm::float32 paralax = 1.0f;
 };
 
+// Узел трансформации для иерархии
+// Хранит локальные координаты и ссылку на родителя
+export
+struct TransformNode {
+    glm::float32 x = 0.0f;
+    glm::float32 y = 0.0f;
+    glm::float32 angle = 0.0f;
+    int parentIndex = -1; // -1 если нет родителя
+
+    // Для GPU удобно иметь выравнивание, например, до 16 байт
+    // float padding;
+};
+
 export
 class Sprite {
 public:
-    // Индекс в векторе sprite_data_ репозитория. -1 если не активен или не добавлен
-    size_t data = 234423452546;
+    // Индекс в векторе sprite_data_ репозитория. ~0 если слот свободен
+    size_t dataIdx = ~size_t{0};
+
+    // Индекс в векторе transforms_ репозитория. ~0 если трансформация не назначена
+    size_t transformIdx = ~size_t{0};
+
     float depth = 0.0f;
-    bool active = false;
+    // bool active удален. Активность определяется как (dataIdx != ~size_t{0})
     size_t textureDesc = 0;
 
     Sprite() {}
 
-    // Конструктор для удобства создания
-    Sprite(const size_t& texture) :
+    explicit Sprite(const size_t& texture) :
         textureDesc(texture) {}
+
+    // Быстрая проверка на валидность
+    inline bool isValid() const {
+        return dataIdx != ~size_t{0};
+    }
 };
