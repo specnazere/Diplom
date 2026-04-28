@@ -70,7 +70,7 @@ void main() {
 
     // 3. Масштаб и вращение квада
     vec2 scaled = aPos * vec2(iWidth, iHeight);
-    float s = sin(totalAngle), c = cos(totalAngle);
+    float s = sin(-totalAngle), c = cos(-totalAngle);
     vec2 rotated = mat2(c, -s, s, c) * scaled;
 
     worldPos += rotated;

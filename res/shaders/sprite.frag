@@ -14,7 +14,7 @@ uniform vec2 uLightPos;
 // Настройки света (можно вынести в uniform, если нужно менять динамически)
 const float LIGHT_HEIGHT = 200.0;      // Высота источника над экраном (влияет на угол падения)
 const float LIGHT_INTENSITY = 2;
-const float AMBIENT_STRENGTH = 1;
+const float AMBIENT_STRENGTH = 0.7;
 const float SPECULAR_STRENGTH = 0.2;
 const float SHININESS = 10.0;
 
@@ -30,8 +30,8 @@ void main() {
 
         // 2. Поворот нормали (учет вращения спрайта)
         vec2 rotatedNormalXY;
-        rotatedNormalXY.x = normal.x * vCos - normal.y * vSin;
-        rotatedNormalXY.y = normal.x * vSin + normal.y * vCos;
+        rotatedNormalXY.x = normal.x *  vCos - normal.y * -vSin;
+        rotatedNormalXY.y = normal.x * -vSin + normal.y *  vCos;
         normal = vec3(rotatedNormalXY, normal.z);
         normal = normalize(normal);
 

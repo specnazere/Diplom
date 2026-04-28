@@ -239,6 +239,11 @@ public:
         return transforms_.size();
     }
 
+    TransformNode& getTransform(size_t local_transform_)
+    {
+        return transforms_[local_transform_];
+    }
+
     // Прямой доступ
     SpriteData& dataFromSpriteIdx(size_t index)
     {

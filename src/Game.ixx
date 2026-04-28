@@ -38,7 +38,7 @@ namespace game
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-        GLFWwindow* window = glfwCreateWindow(2200, 1200, "Hello World!", nullptr, nullptr);
+        GLFWwindow* window = glfwCreateWindow(800, 600, "Hello World!", nullptr, nullptr);
         if (!window) {
             const char* err_buffer = nullptr;
             glfwGetError(&err_buffer);
@@ -100,8 +100,9 @@ namespace game
             repo,
             res.texturesRepo[spaceshipTexture].object,
             atlas->get_uv(spaceshipTexture),
-            {10, 10, 0, 1, {0, 0}});
-        ship.apply_damage(glm::vec2(10, 0), 100.0f, 100.0f);
+            {3, 10, 0, 1, {0, 0}});
+        //ship.apply_damage(glm::vec2(10, 0), 100.0f, 200.0f);
+        //auto frags = ship.split_if_disconnected();
 
         // === Инициализация рендерера ===
         Renderer::init(window, &repo);
@@ -143,8 +144,10 @@ namespace game
             //
             // last_time = current_time;
 
+            ship.set_rotation(time / 150);
+
             glfwPollEvents();
-            Renderer::renderAll(time);
+            Renderer::renderAll(0);
             glfwSwapBuffers(window);
         }
 
