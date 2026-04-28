@@ -75,6 +75,8 @@ public:
     {
         if (initialized_) return;
 
+        glfwWindowHint(GLFW_SAMPLES, 4); // 4x MSAA
+
         repo_ = repo;
 
         glfwGetFramebufferSize(window, &window_width_, &window_height_);
@@ -265,6 +267,7 @@ public:
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
         glDisable(GL_CULL_FACE);
+        glEnable(GL_MULTISAMPLE);
 
         initialized_ = true;
     }
