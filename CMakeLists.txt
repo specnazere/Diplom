@@ -55,6 +55,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/graphics/Resources.ixx
         src/graphics/Locale.ixx
         src/graphics/Sprites_repository.ixx
+        src/graphics/BoundedFrame.ixx
 
         src/game/Spaceship.ixx
         src/game/Destruction.ixx

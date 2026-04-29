@@ -48,11 +48,7 @@ private:
     static inline GLuint rbo_           = 0;
 
     static inline Shader* sprite_shader_      = nullptr;
-    static inline Shader* mesh_shader_        = nullptr;
     static inline Shader* postprocess_shader_ = nullptr;
-#ifdef DEBUG_WIREFRAME
-    static inline Shader* wireframe_shader_   = nullptr;
-#endif
 
     static inline int window_width_  = 0;
     static inline int window_height_ = 0;
@@ -82,11 +78,7 @@ public:
         glfwGetFramebufferSize(window, &window_width_, &window_height_);
 
         sprite_shader_      = new Shader("res/shaders/sprite");
-        mesh_shader_        = new Shader("res/shaders/mesh");
         postprocess_shader_ = new Shader("res/shaders/postprocess");
-#ifdef DEBUG_WIREFRAME
-        wireframe_shader_ = new Shader("res/shaders/flatBlack");
-#endif
 
         glfwSwapInterval(0);
 

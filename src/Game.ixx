@@ -25,6 +25,7 @@ import text_box;
 import atlas;
 import destruction;
 import destructible_object;
+import nine_patch;
 
 // Вызывается из main.cpp как game::run()
 export
@@ -64,7 +65,7 @@ namespace game
         // Загружаем файл шрифта (данные TTF, без растеризации)
         res.loadFontFile("res/fonts/trafaretkit.ttf", "basic", 50.0f);
 
-        size_t spaceshipTexture = res.loadTextureFile("spaceship_color", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
+        size_t frame = res.loadTextureFile("frame", "res/textures/interface/basic frame.png");
 
         // Получаем набор символов из первой (или нужной) локали
         // Предполагаем, что loadLocaleFile добавил локаль "ru" (или нужную)
@@ -94,36 +95,16 @@ namespace game
         // Перемещаем атлас в репозиторий (он там хранится по значению)
         SpritesRepository repo;
         repo.atlas = std::move(*atlas);
-        // destruction::DestructionRailgun dest(40, 2, glm::vec2(-300, 0), 0);
-        // ship.applyDestruction(dest);
-        DestructibleObject ship = DestructibleObject(
-            repo,
-            res.texturesRepo[spaceshipTexture].object,
-            atlas->get_uv(spaceshipTexture),
-            {8, 10, 0, 1, {0, 0}});
-        //ship.apply_damage(glm::vec2(10, 0), 100.0f, 200.0f);
-        //auto frags = ship.split_if_disconnected();
+
+        BoundedFrame win(repo, frame);
+        win.set_corner_size(50.0f); // 1/3 от высоты/ширины исходной текстуры в пикселях
+        win.set_geometry(0, 0, 200, 100, 0.5f); // x, y, w, h, depth
+
+        //win.resize(600, 400);
+        // win.move(150, 250);
 
         // === Инициализация рендерера ===
         Renderer::init(window, &repo);
-
-        // === Создание текстового блока ===
-        // Text_box text(repo);
-        // text.set_font(&font);
-        // // Передаём u32string напрямую, т.к. localisation_manager больше не существует.
-        // // Если нужна локализация — получайте строку из locale до передачи в set_text.
-        // text.set_text(res.localesRepo["russian"].object["hello_world"]);
-        // text.set_pos(-100, -300);
-        // text.set_width(650);
-        // text.bake_text();
-
-        // for (int i = 0; i < 1; i += 1) {
-        //     size_t spriteindex = repo.addSprite({}, 0);
-        //     auto& spriteData = repo.dataFromSpriteIdx(spriteindex);
-        //     spriteData.width = 115 * 10;
-        //     spriteData.height = 60 * 10;
-        //     spriteData.uvRect = repo.atlas.get_uv(spaceshipTexture);
-        // }
 
         // === Игровой цикл ===
         double last_time = glfwGetTime();
@@ -143,8 +124,6 @@ namespace game
             // }
             //
             // last_time = current_time;
-
-            ship.set_rotation(time / 50);
 
             glfwPollEvents();
             Renderer::renderAll(0);
