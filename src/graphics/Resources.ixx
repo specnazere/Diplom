@@ -121,7 +121,7 @@ public:
         }
     }
 
-    void loadFontFile(const std::string &path, const std::string &sDesc, const float& size) {
+    void loadFontFile(const std::string &path, const std::string &sDesc) {
         // 1. Чтение файла
         FILE* f = fopen(path.c_str(), "rb");
         if (!f) {
@@ -151,14 +151,13 @@ public:
         }
 
         // 3. Создание объекта шрифта
-        fontsRepo.add(sDesc, Font(path, size));
+        fontsRepo.add(sDesc, Font(path));
         auto& font_obj = fontsRepo[sDesc].object;
 
         // Сохраняем сырые данные внутри объекта шрифта для будущей растеризации
         font_obj.ttf_data = ttf_buffer;
         font_obj.ttf_size = len;
         font_obj.font_info = font_info;
-        font_obj.base_scale = stbtt_ScaleForPixelHeight(&font_info, size);
     }
 
     void initFontWithCharset(const std::set<char32_t>& charset, const int& size, const std::string& sDesc)
@@ -172,7 +171,7 @@ public:
 
 private:
     void initFontByRef(const std::set<char32_t>& charset, const int& size, Font& fontRef) {
-        fontRef.bakeGlyphs(charset, texturesRepo);
+        fontRef.bakeGlyphs(charset, texturesRepo, size);
     }
 
 public:

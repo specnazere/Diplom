@@ -22,11 +22,14 @@ enum text_alignment {
 };
 
 export
-class Text_box {
+class TextBox {
 private:
     int width = 0;
+
     int pos_x = 0;
     int pos_y = 0;
+
+    float height_ = 0;
 
     Font* font = nullptr;
 
@@ -35,12 +38,12 @@ private:
 
     std::vector<int> words_wideness;
 
-    text_alignment alignment = left;
-
     SpritesRepository& sprites_;
 
 public:
-    Text_box(SpritesRepository& spritesRepo) :
+    text_alignment alignment = left;
+
+    TextBox(SpritesRepository& spritesRepo) :
         sprites_(spritesRepo) {}
 
     void set_pos(const int &x, const int &y) {
@@ -60,7 +63,7 @@ public:
         reload_positions();
     }
 
-    void bake_text() {
+    void bake_text(const float& depth, const size_t& transform = -1) {
         clear_sprites();
         if (text.size() == 0) return;
 
@@ -72,6 +75,11 @@ public:
 
                 spriteData.width = font->get_glyph(c).width;
                 spriteData.height = font->get_glyph(c).height;
+
+                spriteData.depth = depth;
+
+                if (transform != -1)
+                    spriteData.transformIdx = transform;
 
                 spriteData.uvRect = sprites_.atlas.get_uv(font->get_glyph(c).textureIDesc);
                 words_wideness.back() -= font->get_glyph(c).width;
@@ -94,7 +102,7 @@ public:
         words_wideness.push_back(0);
     }
 
-    void reload_positions() const {
+    void reload_positions() {
         if (words_wideness.empty()) return;
         int offset_x = -width / 2;
         int offset_y = 0;
@@ -138,5 +146,12 @@ public:
             }
             offset_x += font->get_glyph(text[i]).advance;
         }
+
+        height_ = font->get_size() * 1.5 - offset_y;
+    }
+
+    float get_total_height()
+    {
+        return height_;
     }
 };

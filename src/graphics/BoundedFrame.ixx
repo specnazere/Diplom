@@ -1,5 +1,5 @@
 //
-// NinePatch.ixx
+// BoundedFrame.ixx
 //
 // Класс окна интерфейса динамического размера на основе техники 9-slice (nine-patch).
 //
@@ -14,11 +14,35 @@
 //  ML/MR       — бока:     масштабируются только по Y
 //  MM          — центр:    масштабируется по X и Y
 //
+// ─── Изменения относительно исходной версии (NinePatch.ixx) ─────────────────
+//
+//  1. Переименование: NinePatch → BoundedFrame, модуль nine_patch → nine_patch
+//     (имя модуля сохранено для обратной совместимости).
+//
+//  2. UV больше не передаётся снаружи.
+//     Было:   NinePatch(repo, texture_desc, src_uv, parent)
+//     Стало:  BoundedFrame(repo, texture_desc, parent)
+//     UV теперь запрашивается напрямую из атласа: repo_.atlas.get_uv(texture_desc).
+//     Это убирает дублирование — у атласа уже есть маппинг хендл→UV.
+//
+//  3. Система координат тайлов изменилась с «от левого верхнего угла» на «от центра».
+//     Было:   cx = { cs*0.5, cs + mid_w*0.5, cs + mid_w + cs*0.5 }  (всё положительно)
+//     Стало:  cx = { -cs*0.5 - mid_w*0.5,  0,  cs*0.5 + mid_w*0.5 }
+//     Таким образом origin трансформации (0,0) соответствует центру окна,
+//     что согласуется с тем, как position_x/position_y интерпретируется в SpriteData
+//     (смещение центра спрайта от origin его трансформации).
+//
+//  4. Enum Slot и функция split_uv вынесены из анонимного namespace в глобальный —
+//     они были доступны только внутри translation unit, поведение не изменилось.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+//
 // Использование:
-//   NinePatch win(repo, textureDesc, transformParentIdx);
-//   win.set_geometry(x, y, width, height, depth);
-//   win.resize(newWidth, newHeight);
-//   win.move(newX, newY);
+//   BoundedFrame frame(repo, textureDesc);
+//   frame.set_corner_size(32.0f);          // 1/3 физического размера текстуры
+//   frame.set_geometry(x, y, w, h, depth); // позиция центра, размер, глубина
+//   frame.resize(newW, newH);
+//   frame.move(newX, newY);
 //
 
 module;
@@ -33,9 +57,6 @@ import sprite_repository;
 import sprite;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Вспомогательная структура — индексы 9 слотов
-// ─────────────────────────────────────────────────────────────────────────────
-
 // Порядок слотов (строка за строкой, слева направо, сверху вниз):
 //  0=TL  1=TM  2=TR
 //  3=ML  4=MM  5=MR
@@ -47,7 +68,7 @@ enum Slot : int {
     COUNT = 9
 };
 
-// Разбивает исходный uv_rect на 9 равных частей
+// Разбивает uv_rect на 9 равных частей по сетке 3×3
 std::array<uv_rect, 9> split_uv(const uv_rect& src)
 {
     const float du = (src.u1 - src.u0) / 3.0f;
@@ -75,20 +96,19 @@ class BoundedFrame
 public:
     // ─── Конструктор / Деструктор ────────────────────────────────────────────
 
-    // repo           — репозиторий спрайтов
-    // texture_desc   — хендл текстуры (передаётся в Sprite::textureDesc)
-    // src_uv         — UV исходной текстуры в атласе (весь прямоугольник)
+    // repo             — репозиторий спрайтов
+    // texture_desc     — хендл текстуры; UV берётся из repo.atlas
     // parent_transform — индекс родительской трансформации (-1 если нет)
     BoundedFrame(SpritesRepository& repo,
-              size_t             texture_desc,
-              int                parent_transform = -1)
+                 size_t             texture_desc,
+                 int                parent_transform = -1)
         : repo_(repo)
         , texture_desc_(texture_desc)
     {
         // 1. Создаём общую трансформацию-якорь для всей группы
         root_transform_ = repo_.createTransform(parent_transform);
 
-        // 2. Разбиваем UV на 9 частей
+        // 2. UV запрашиваем из атласа по хендлу текстуры и делим на 9 частей
         tile_uvs_ = split_uv(repo_.atlas.get_uv(texture_desc));
 
         // 3. Создаём 9 спрайтов
@@ -103,25 +123,19 @@ public:
 
     ~BoundedFrame()
     {
-        // Удаляем все 9 спрайтов
-        for (int i = 0; i < Slot::COUNT; ++i) {
+        for (int i = 0; i < Slot::COUNT; ++i)
             repo_.removeSprite(sprite_indices_[i]);
-        }
-        // Освобождаем корневую трансформацию
         repo_.destroyTransform(root_transform_);
     }
 
-    // Запрет копирования — владеем ресурсами репозитория
     BoundedFrame(const BoundedFrame&)            = delete;
     BoundedFrame& operator=(const BoundedFrame&) = delete;
-
-    // Перемещение разрешено
-    BoundedFrame(BoundedFrame&&)            = default;
-    BoundedFrame& operator=(BoundedFrame&&) = default;
+    BoundedFrame(BoundedFrame&&)                 = default;
+    BoundedFrame& operator=(BoundedFrame&&)      = default;
 
     // ─── Основной интерфейс ──────────────────────────────────────────────────
 
-    // Установить позицию, размер и глубину за один вызов
+    // Установить позицию центра окна, размер и глубину за один вызов
     void set_geometry(float x, float y,
                       float width, float height,
                       float depth = 0.0f)
@@ -131,84 +145,72 @@ public:
         apply_layout(width, height);
     }
 
-    // Изменить только размер (позиция остаётся)
+    // Изменить только размер (позиция остаётся прежней)
     void resize(float width, float height)
     {
         apply_layout(width, height);
     }
 
-    // Изменить только позицию (размер остаётся)
+    // Изменить только позицию центра (размер остаётся прежним)
     void move(float x, float y)
     {
         repo_.setTransformLocal(root_transform_, x, y, 0.0f);
     }
 
-    // Текущий размер окна
     float width()  const { return width_;  }
     float height() const { return height_; }
 
-    // Индекс корневой трансформации (для подвешивания дочерних элементов)
+    // Индекс корневой трансформации — используется для привязки дочерних элементов
     size_t root_transform_index() const { return root_transform_; }
 
+    // Размер угловых тайлов в экранных единицах (= 1/3 физического размера текстуры).
+    // Устанавливать до первого вызова set_geometry / resize.
+    float corner_size_ = 32.0f;
+    void set_corner_size(float cs) { corner_size_ = cs; }
+
 private:
-    // ─── Вычисление раскладки ─────────────────────────────────────────────────
+    // ─── Раскладка ───────────────────────────────────────────────────────────
     //
-    // Система координат: начало (0,0) — левый верхний угол окна.
-    // position_x / position_y каждого спрайта — смещение центра спрайта
-    // относительно origin трансформации (т.е. левого верхнего угла окна).
+    // Система координат: (0,0) — центр окна (origin трансформации).
+    // position_x/y каждого спрайта — смещение его центра от origin.
     //
-    // Размеры угловых тайлов определяются как 1/3 от исходной текстуры.
-    // Если окно меньше, чем два угловых тайла — минимальный размер клампируется.
+    //  Колонки по X:  [-mid_w/2 - cs/2]  [0]  [+mid_w/2 + cs/2]
+    //  Строки по Y:   [-mid_h/2 - cs/2]  [0]  [+mid_h/2 + cs/2]
 
     void apply_layout(float win_w, float win_h)
     {
-        // Ширина/высота одного угла = 1/3 от исходного тайла.
-        // Предполагаем, что SpriteData::width/height хранят пиксельный размер.
-        // Запоминаем физический размер тайла из первого спрайта (или задаём явно).
-        // Здесь используем corner_size_ — задаётся один раз при необходимости
-        // (по умолчанию 1/3 от предположительного размера текстуры, обычно задаётся
-        // через set_corner_size до первого вызова).
+        const float cs = corner_size_;
 
-        const float cs = corner_size_; // размер угла (одинаков по X и Y)
-
-        // Гарантируем минимальный размер окна
-        win_w  = glm::max(win_w,  2.0f * cs);
-        win_h  = glm::max(win_h,  2.0f * cs);
+        win_w = glm::max(win_w, 2.0f * cs);
+        win_h = glm::max(win_h, 2.0f * cs);
 
         width_  = win_w;
         height_ = win_h;
 
-        // Размеры 9 тайлов:
-        //  col: [cs]  [win_w - 2*cs]  [cs]
-        //  row: [cs]  [win_h - 2*cs]  [cs]
         const float mid_w = win_w - 2.0f * cs;
         const float mid_h = win_h - 2.0f * cs;
 
-        // Центры колонок (от левого края окна)
+        // Центры колонок относительно центра окна
         const float cx[3] = {
-            cs * -0.5f - mid_w * 0.5f,               // левая колонка
-            0,       // средняя колонка
-            cs *  0.5f + mid_w * 0.5f   // правая колонка
+            -cs * 0.5f - mid_w * 0.5f, // левая
+             0.0f,                     // средняя
+             cs * 0.5f + mid_w * 0.5f  // правая
         };
 
-        // Центры строк (от верхнего края окна)
+        // Центры строк относительно центра окна
         const float cy[3] = {
-            cs * -0.5f - mid_h * 0.5f,               // верхняя строка
-            0,       // средняя строка
-            cs *  0.5f + mid_h * 0.5f   // нижняя строка
+            -cs * 0.5f - mid_h * 0.5f, // верхняя
+             0.0f,                     // средняя
+             cs * 0.5f + mid_h * 0.5f  // нижняя
         };
 
-        // Размеры тайлов по колонкам / строкам
         const float tw[3] = { cs, mid_w, cs };
         const float th[3] = { cs, mid_h, cs };
 
         for (int row = 0; row < 3; ++row) {
             for (int col = 0; col < 3; ++col) {
-                const int slot = row * 3 + col;
-                const size_t sprite_idx = sprite_indices_[slot];
-
-                // Получаем указатель на SpriteData через dataFromSpriteIdx
-                SpriteData& sd = repo_.dataFromSpriteIdx(sprite_idx);
+                const int    slot = row * 3 + col;
+                SpriteData&  sd   = repo_.dataFromSpriteIdx(sprite_indices_[slot]);
 
                 sd.width      = tw[col];
                 sd.height     = th[row];
@@ -218,32 +220,20 @@ private:
             }
         }
 
-        // Обновляем глубину
-        for (int i = 0; i < Slot::COUNT; ++i) {
-            repo_[sprite_indices_[i]].depth = depth_;
-        }
+        for (int i = 0; i < Slot::COUNT; ++i)
+            repo_.dataFromSpriteIdx(sprite_indices_[i]).depth = depth_;
     }
 
     // ─── Поля ────────────────────────────────────────────────────────────────
 
-    SpritesRepository& repo_;
-    size_t             texture_desc_;
+    SpritesRepository&     repo_;
+    size_t                 texture_desc_;
 
-    size_t             root_transform_ = ~size_t{0};
-    size_t             sprite_indices_[Slot::COUNT]{};
-
+    size_t                 root_transform_ = ~size_t{0};
+    size_t                 sprite_indices_[Slot::COUNT]{};
     std::array<uv_rect, 9> tile_uvs_{};
 
-    float width_       = 0.0f;
-    float height_      = 0.0f;
-    float depth_       = 0.0f;
-
-public:
-    // Размер угловых тайлов в экранных единицах.
-    // Должен соответствовать 1/3 физического размера исходной текстуры.
-    // Устанавливайте до вызова set_geometry / resize.
-    float corner_size_ = 32.0f;
-
-    // Удобный сеттер
-    void set_corner_size(float cs) { corner_size_ = cs; }
+    float width_  = 0.0f;
+    float height_ = 0.0f;
+    float depth_  = 0.0f;
 };

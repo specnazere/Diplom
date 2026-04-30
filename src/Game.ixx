@@ -26,6 +26,7 @@ import atlas;
 import destruction;
 import destructible_object;
 import nine_patch;
+import text_window;
 
 // Вызывается из main.cpp как game::run()
 export
@@ -63,7 +64,7 @@ namespace game
         res.loadLocaleFile("res/localiz/placeholders.csv");
 
         // Загружаем файл шрифта (данные TTF, без растеризации)
-        res.loadFontFile("res/fonts/trafaretkit.ttf", "basic", 50.0f);
+        res.loadFontFile("res/fonts/trafaretkit.ttf", "basic");
 
         size_t frame = res.loadTextureFile("frame", "res/textures/interface/basic frame.png");
 
@@ -80,11 +81,10 @@ namespace game
         }
 
         // Растеризуем глифы шрифта под полученный charset
-        res.initFontWithCharset(combined_charset, 50, "basic");
+        res.initFontWithCharset(combined_charset, 150, "basic");
 
         // Получаем ссылку на шрифт и связываем его с атласом
         Font& font = res.fontsRepo["basic"].object;
-        font.bakeGlyphs(combined_charset, res.texturesRepo);
 
         // Создаём GPU-атлас из текстуры шрифта
         Atlas* atlas = res.createAtlas();
@@ -96,9 +96,14 @@ namespace game
         SpritesRepository repo;
         repo.atlas = std::move(*atlas);
 
-        BoundedFrame win(repo, frame);
-        win.set_corner_size(50.0f); // 1/3 от высоты/ширины исходной текстуры в пикселях
-        win.set_geometry(0, 0, 200, 100, 0.5f); // x, y, w, h, depth
+        TextWindow win(repo, frame, &font, &font);
+        win.set_corner_size(32.f);
+        win.set_width(1000);
+        win.set_padding(16, 12);      // опционально
+        win.set_header_gap(8);        // опционально
+        win.set_title(U"Привет мир!");
+        win.set_text(U"Привет мир!");
+        win.apply(0, 0, 0.5f);       // запекает и выставляет геометрию
 
         //win.resize(600, 400);
         // win.move(150, 250);

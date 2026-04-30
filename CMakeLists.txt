@@ -30,8 +30,7 @@ target_link_libraries(glad PUBLIC glfw)
 # Если вы оставили .cpp, просто замените .ixx на .cpp в этом списке.
 
 # Основное приложение
-add_executable(${PROJECT_NAME}
-        src/main.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp)
 
 # 1. Обычные источники (main.cpp, старые .cpp библиотеки)
 # Они не являются модулями, поэтому добавляются как обычные источники
@@ -50,12 +49,13 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/graphics/Atlas.ixx
         src/graphics/Shader.ixx
         src/graphics/Camera.ixx
-        src/graphics/text_box.ixx
+        src/graphics/textBox.ixx
         src/graphics/Font.ixx
         src/graphics/Resources.ixx
         src/graphics/Locale.ixx
-        src/graphics/Sprites_repository.ixx
+        src/graphics/SpritesRepository.ixx
         src/graphics/BoundedFrame.ixx
+        src/graphics/TextWindow.ixx
 
         src/game/Spaceship.ixx
         src/game/Destruction.ixx

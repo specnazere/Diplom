@@ -19,6 +19,7 @@ struct alignas(16) SpriteData {
     glm::float32 position_y{};
 
     glm::float32 paralax = 1.0f;
+    glm::float32 depth = 0.0f;
     uv_rect uvRect;
 
     unsigned int transformIdx = 0xFFFFFFFFu;

@@ -44,16 +44,15 @@ private:
 
 public:
     const std::string name;
-    const int size;
-    float base_scale;
+    int size;
 
     // Данные для отложенной растеризации
     unsigned char* ttf_data = nullptr;
     unsigned long long ttf_size;
     stbtt_fontinfo font_info;
 
-    Font(const std::string& name, const int& size) :
-        size(0), name(name)
+    Font(const std::string& name) :
+        name(name)
     {
         glyphs_.reserve(64);
     }
@@ -90,14 +89,16 @@ public:
         return oss.str();
     }
 
-    void bakeGlyphs(const std::set<char32_t>& charset, repository<texture>& texturesRepo)
+    void bakeGlyphs(const std::set<char32_t>& charset, repository<texture>& texturesRepo, const int& bake_size)
     {
+        size = bake_size;
+
         if (!ttf_data) {
             std::cerr << "Invalid font object or data not loaded." << std::endl;
             return;
         }
 
-        float scale = 0.2;
+        float scale = stbtt_ScaleForPixelHeight(&font_info, bake_size);
         stbtt_fontinfo* info = &font_info;
 
         for (const char32_t& c : charset) {

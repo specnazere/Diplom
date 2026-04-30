@@ -10,6 +10,7 @@ layout(location = 5) in vec2  iPos;             // Локальная позиц
 layout(location = 6) in float iParalax;
 layout(location = 7) in vec4  iUVRect;
 layout(location = 8) in uint  iTransformIdx;    // Индекс в иерархии
+layout(location = 9) in float iDepth;    // Индекс в иерархии
 
 // Глобальный массив трансформаций (SSBO)
 // Формат узла: { x, y, angle, parentIndex_as_float }
@@ -81,7 +82,7 @@ void main() {
 
     mat4 pv = uView;
     pv[3][3] *= iParalax;
-    gl_Position = pv * vec4(worldPos, 0.0, 1.0);
+    gl_Position = pv * vec4(worldPos, iDepth, 1.0);
 
     vUV = vec2(
         iUVRect.x + (iUVRect.z - iUVRect.x) * (aPos.x + 0.5),

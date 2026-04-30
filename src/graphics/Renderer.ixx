@@ -210,6 +210,12 @@ public:
             glEnableVertexAttribArray(8);
             glVertexAttribDivisor(8, 1);
 
+            // iDepth — location 9
+            glVertexAttribPointer(9, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
+                (void*)offsetof(SpriteData, depth));
+            glEnableVertexAttribArray(9);
+            glVertexAttribDivisor(9, 1);
+
             glBindBuffer(GL_ARRAY_BUFFER, 0);
             glBindVertexArray(0);
         }
