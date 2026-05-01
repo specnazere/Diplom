@@ -1,5 +1,11 @@
 #version 430 core
 
+struct Transform {
+    vec2 pos;
+    float angle;
+    uint parent;
+};
+
 layout(location = 0) in vec2 aPos;          // Базовый квад [-0.5, 0.5]
 
 // Инстанс-данные из SpriteData
@@ -15,7 +21,7 @@ layout(location = 9) in float iDepth;    // Индекс в иерархии
 // Глобальный массив трансформаций (SSBO)
 // Формат узла: { x, y, angle, parentIndex_as_float }
 layout(std430, binding = 0) buffer TransformBuffer {
-    vec4 nodes[];
+    Transform nodes[];
 };
 
 uniform mat4 uView;
@@ -39,19 +45,19 @@ vec3 computeGlobalTransform(uint startIdx) {
 
     for (int i = 0; i < uMaxTransformDepth && i < 16 && cur != INVALID; ++i) {
         path[depth++] = cur;
-        uint parent = uint(nodes[cur].w);
+        uint parent = nodes[cur].parent;
         cur = (parent == INVALID) ? INVALID : parent;
     }
 
     // Применение от корня к листу
     float gx = 0.0, gy = 0.0, ga = 0.0;
     for (int i = depth - 1; i >= 0; --i) {
-        vec4 n = nodes[path[i]];
+        Transform n = nodes[path[i]];
         // Поворот локального смещения узла на накопленный угол родителя
         float cosA = cos(ga), sinA = sin(ga);
-        float rx = n.x * cosA - n.y * sinA;
-        float ry = n.x * sinA + n.y * cosA;
-        gx += rx; gy += ry; ga += n.z;
+        float rx = n.pos.x * cosA - n.pos.y * sinA;
+        float ry = n.pos.x * sinA + n.pos.y * cosA;
+        gx += rx; gy += ry; ga += n.angle;
     }
     return vec3(gx, gy, ga);
 }
