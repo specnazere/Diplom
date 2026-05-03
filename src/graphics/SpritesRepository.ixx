@@ -75,8 +75,8 @@ public:
 
     void setTransformLocal(size_t transformIdx, float x, float y, float angle) {
         if (transformIdx >= transforms_.size()) return;
-        transforms_[transformIdx].x = x;
-        transforms_[transformIdx].y = y;
+        transforms_[transformIdx].position.x = x;
+        transforms_[transformIdx].position.y = y;
         transforms_[transformIdx].angle = angle;
     }
 
@@ -144,8 +144,8 @@ public:
             float cosA = std::cos(currentAccumulatedAngle);
             float sinA = std::sin(currentAccumulatedAngle);
 
-            float rotatedLocalX = node->x * cosA - node->y * sinA;
-            float rotatedLocalY = node->x * sinA + node->y * cosA;
+            float rotatedLocalX = node->position.x * cosA - node->position.y * sinA;
+            float rotatedLocalY = node->position.x * sinA + node->position.y * cosA;
 
             currentAccumulatedX += rotatedLocalX;
             currentAccumulatedY += rotatedLocalY;

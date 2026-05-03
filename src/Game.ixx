@@ -5,6 +5,8 @@
 // === Global module fragment: сторонние #include идут сюда, до объявления модуля ===
 module;
 
+#include <memory>
+
 #include "glad/glad.h"
 #include "GLFW/glfw3.h"
 #include "glm/glm.hpp"
@@ -21,12 +23,10 @@ import resources;
 import sprite_repository;
 import locale;
 import font;
-import text_box;
 import atlas;
 import destruction;
 import destructible_object;
-import nine_patch;
-import text_window;
+import scene;
 
 // Вызывается из main.cpp как game::run()
 export
@@ -66,7 +66,7 @@ namespace game
         // Загружаем файл шрифта (данные TTF, без растеризации)
         res.loadFontFile("res/fonts/trafaretkit.ttf", "basic");
 
-        size_t frame = res.loadTextureFile("frame", "res/textures/interface/basic frame.png");
+        size_t shipTexture = res.loadTextureFile("spaceship", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
 
         // Получаем набор символов из первой (или нужной) локали
         // Предполагаем, что loadLocaleFile добавил локаль "ru" (или нужную)
@@ -96,40 +96,91 @@ namespace game
         SpritesRepository repo;
         repo.atlas = std::move(*atlas);
 
-        TextWindow win(repo, frame, &font, &font);
-        win.set_corner_size(32.f);
-        win.set_width(1000);
-        win.set_padding(16, 12);      // опционально
-        win.set_header_gap(8);        // опционально
-        win.set_title(U"Привет мир!");
-        win.set_text(U"Привет мир!");
-        win.apply(0, 0, 0.5f);       // запекает и выставляет геометрию
-
         //win.resize(600, 400);
-        // win.move(150, 250);
+        //win.move(150, 250);
 
         // === Инициализация рендерера ===
         Renderer::init(window, &repo);
+
+        // PhysicsScene scene;
+        // auto obj1 = scene.add(
+        //     PhysicsObject(
+        //         DestructibleObject(
+        //             repo,
+        //             res.texturesRepo[shipTexture].object,
+        //             atlas->get_uv(shipTexture),
+        //             DestructibleObject::Params(
+        //                 1,
+        //                 10,
+        //                 0,
+        //                 1,
+        //                 glm::vec2(
+        //                     0.0f,
+        //                     100.0f
+        //                 )
+        //             )
+        //         ),
+        //         PhysicsObject::Params(
+        //             1,
+        //             15,
+        //             1,
+        //             0.1f
+        //         )
+        //     )
+        // );
+        // auto obj2 = scene.add(
+        //     PhysicsObject(
+        //         DestructibleObject(
+        //             repo,
+        //             res.texturesRepo[shipTexture].object,
+        //             atlas->get_uv(shipTexture),
+        //             DestructibleObject::Params(
+        //                 1,
+        //                 10,
+        //                 0,
+        //                 1,
+        //                 glm::vec2(
+        //                     0.0f,
+        //                     -200.0f
+        //                 )
+        //             )
+        //         ),
+        //         PhysicsObject::Params(
+        //             1,
+        //             15,
+        //             1,
+        //             0.1f
+        //         )
+        //     )
+        // );
+        //
+        // obj1->apply_impulse({0, -100}, {0, 100});
+
+        auto scene = Scene();
+        auto ship = DestructibleObject(repo, res.texturesRepo[shipTexture].object, atlas->get_uv(shipTexture), {5, 5, 0, 1, {0, -200}});
+        auto ship2 = DestructibleObject(repo, res.texturesRepo[shipTexture].object, atlas->get_uv(shipTexture), {5, 5, 0, 1, {0, 100}});
+        scene.add(std::unique_ptr<DestructibleObject>(&ship), {{0, 10}, 0});
+        scene.add(std::unique_ptr<DestructibleObject>(&ship2), {{0, -10}, 0});
+
 
         // === Игровой цикл ===
         double last_time = glfwGetTime();
         constexpr double target_fps  = 60.0;
         constexpr double frame_time  = 1.0 / target_fps;
-        float time = 0;
 
         while (!glfwWindowShouldClose(window))
         {
-            time += 0.006;
-            // const double current_time = glfwGetTime();
-            // const double delta        = current_time - last_time;
-            //
+            const double current_time = glfwGetTime();
+            const double delta        = current_time - last_time;
+
             // if (delta < frame_time) {
             //     glfwWaitEventsTimeout(frame_time - delta);
             //     continue;
             // }
-            //
-            // last_time = current_time;
 
+            scene.update(delta);
+
+            last_time = current_time;
             glfwPollEvents();
             Renderer::renderAll(0);
             glfwSwapBuffers(window);

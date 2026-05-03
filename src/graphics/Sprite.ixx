@@ -39,8 +39,7 @@ struct SpriteInitData {
 // Хранит локальные координаты и ссылку на родителя
 export
 struct TransformNode {
-    glm::float32 x = 0.0f;
-    glm::float32 y = 0.0f;
+    glm::vec2 position = glm::vec2(0, 0);
     glm::float32 angle = 0.0f;
     int parentIndex = -1; // -1 если нет родителя
 

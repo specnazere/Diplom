@@ -8,6 +8,7 @@ module;
 #include <utility>
 #include <queue>
 #include <limits>
+#include <cmath>
 
 export module destructible_object;
 
@@ -23,6 +24,7 @@ export enum class VoxelStatus : std::uint8_t
 {
     Absent   = 0,  // пустая ячейка (прозрачный пиксель или разрушена)
     Active   = 1,  // живой воксель
+    Boundary = 2,  // граничный воксель
 };
 
 // ---------------------------------------------------------------------------
@@ -37,9 +39,53 @@ export struct Voxel
     VoxelStatus status = VoxelStatus::Absent;
     size_t      spriteIdx = ~size_t{0};
 
-    bool is_alive()   const { return status == VoxelStatus::Active && hp > 0.f; }
+    bool is_alive()   const { return status >= VoxelStatus::Active && hp > 0.f; }
     bool has_sprite() const { return spriteIdx != ~size_t{0}; }
 };
+
+// ---------------------------------------------------------------------------
+//  Точка контакта при коллизии двух объектов (мировые координаты)
+// ---------------------------------------------------------------------------
+export struct ContactPoint
+{
+    glm::vec2 world_pos;   // середина между двумя столкнувшимися вокселями
+    glm::vec2 normal;      // нормаль от B к A (единичный вектор)
+};
+
+// ---------------------------------------------------------------------------
+//  Вспомогательные функции преобразования координат
+// ---------------------------------------------------------------------------
+namespace collision_math
+{
+    // Поворот вектора на угол (радианы)
+    inline glm::vec2 rotate_vec(glm::vec2 v, float angle)
+    {
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        return { v.x * c - v.y * s,
+                 v.x * s + v.y * c };
+    }
+
+    // Локальное пространство объекта → мировое
+    inline glm::vec2 local_to_world(glm::vec2 local, glm::vec2 pos, float angle)
+    {
+        return pos + rotate_vec(local, angle);
+    }
+
+    // Мировое → локальное пространство объекта
+    inline glm::vec2 world_to_local(glm::vec2 world, glm::vec2 pos, float angle)
+    {
+        return rotate_vec(world - pos, -angle);
+    }
+
+    // Прямо из локального пространства A в локальное пространство B
+    inline glm::vec2 a_local_to_b_local(glm::vec2 p,
+                                         glm::vec2 posA, float angleA,
+                                         glm::vec2 posB, float angleB)
+    {
+        return world_to_local(local_to_world(p, posA, angleA), posB, angleB);
+    }
+}
 
 // ---------------------------------------------------------------------------
 //  DestructibleObject
@@ -88,8 +134,7 @@ public:
         , local_UV_(local_UV)
     {
         local_transform_ = repo_.createTransform();
-        repo_.getTransform(local_transform_).x = params_.origin.x;
-        repo_.getTransform(local_transform_).y = params_.origin.y;
+        repo_.getTransform(local_transform_).position = params_.origin;
 
         if (chipped) {
             cols_ = tex_.width;
@@ -97,6 +142,7 @@ public:
             voxels_.resize(static_cast<size_t>(cols_ * rows_));
         } else {
             build_voxels(alpha_threshold);
+            build_local_chunks();
         }
     }
 
@@ -132,6 +178,7 @@ public:
     // -----------------------------------------------------------------------
     //  Нанести урон в точке world_pos радиусом radius.
     //  Возвращает true если хотя бы один воксель уничтожен.
+    //  После изменений пересчитывает чанки.
     // -----------------------------------------------------------------------
     bool apply_damage(const glm::vec2& world_pos, float damage, float radius = 0.f)
     {
@@ -171,6 +218,9 @@ public:
                 }
             }
         }
+
+        if (changed)
+            build_local_chunks();
 
         return changed;
     }
@@ -319,9 +369,11 @@ public:
             }
 
             frag.sync_sprites();
-
-            // fragments.push_back(frag);
+            frag.build_local_chunks();
         }
+
+        // После передачи фрагментов пересчитываем чанки текущего объекта
+        build_local_chunks();
 
         return fragments;
     }
@@ -329,14 +381,14 @@ public:
     // -----------------------------------------------------------------------
     //  Сдвинуть позицию всех спрайтов (если не используется TransformNode)
     // -----------------------------------------------------------------------
-    void sync_sprites(glm::vec2 world_offset = {0.f, 0.f})
+    void sync_sprites()
     {
         for (auto& vx : voxels_)
         {
             if (!vx.has_sprite()) continue;
             SpriteData& sd = repo_.dataFromSpriteIdx(vx.spriteIdx);
-            sd.position_x = vx.center.x + world_offset.x;
-            sd.position_y = vx.center.y + world_offset.y;
+            sd.position_x = vx.center.x;
+            sd.position_y = vx.center.y;
         }
     }
 
@@ -348,8 +400,235 @@ public:
     {
         repo_.getTransform(local_transform_).angle = angle;
     }
+    float get_angle() const
+    {
+        return repo_.getTransform(local_transform_).angle;
+    }
+
+    void add_position(const glm::vec2& pos)
+    {
+        repo_.getTransform(local_transform_).position += pos;
+    }
+    void set_position(const glm::vec2& pos)
+    {
+        repo_.getTransform(local_transform_).position = pos;
+    }
+    const glm::vec2& get_position() const
+    {
+        return repo_.getTransform(local_transform_).position;
+    }
+
+
+    // -----------------------------------------------------------------------
+    //  Коллизия — Уровень 1: описывающая окружность
+    //
+    //  Не зависит от угла поворота — подходит как быстрый широкий тест.
+    //  Радиус = половина диагонали AABB сетки вокселей.
+    // -----------------------------------------------------------------------
+    float get_bounding_radius() const
+    {
+        const float hw = cols_ * params_.cell_size * 0.5f;
+        const float hh = rows_ * params_.cell_size * 0.5f;
+        return std::sqrt(hw * hw + hh * hh);
+    }
+
+    bool bounding_circles_overlap(const DestructibleObject& other) const
+    {
+        const glm::vec2 d = get_position() - other.get_position();
+        const float dist2 = d.x * d.x + d.y * d.y;
+        const float rsum  = get_bounding_radius() + other.get_bounding_radius();
+        return dist2 < rsum * rsum;
+    }
+
+    // -----------------------------------------------------------------------
+    //  Коллизия — полная трёхуровневая проверка:
+    //
+    //    1. Описывающие окружности объектов (мировое пространство)
+    //    2. Локальные чанки — через преобразование координат A.local → B.local
+    //    3. Вписанные окружности вокселей (расстояние между центрами < cell_size)
+    //
+    //  Важно: чанки хранятся в локальном пространстве каждого объекта
+    //  и не зависят от его позиции и угла — пересчёт нужен только при
+    //  разрушении вокселей.
+    //
+    //  Возвращает список точек контакта в мировых координатах.
+    //  Пустой вектор — коллизии нет.
+    // -----------------------------------------------------------------------
+    std::vector<ContactPoint> find_contacts(DestructibleObject& other)
+    {
+        std::vector<ContactPoint> contacts;
+
+        // Уровень 1 — описывающие окружности
+        if (!bounding_circles_overlap(other))
+            return contacts;
+
+        const glm::vec2 posA  = get_position();
+        const glm::vec2 posB  = other.get_position();
+        const float     angA  = get_angle();
+        const float     angB  = other.get_angle();
+        const float     cs    = params_.cell_size;
+        // Два вокселя-квадрата со стороной cs перекрываются,
+        // если расстояние между центрами меньше cs (вписанная окружность r = cs/2)
+        const float touch_dist2 = cs * cs;
+
+        // Уровень 2 — перебираем пары чанков (в локальных пространствах)
+        for (const LocalChunk& ca : local_chunks_)
+        {
+            // Центр чанка A переводим в локальное пространство B
+            const glm::vec2 ca_center_B = collision_math::a_local_to_b_local(
+                ca.local_center, posA, angA, posB, angB);
+
+            for (const LocalChunk& cb : other.local_chunks_)
+            {
+                // Проверяем описывающие окружности чанков
+                const glm::vec2 dc = ca_center_B - cb.local_center;
+                const float dc2    = dc.x * dc.x + dc.y * dc.y;
+                const float rsum   = ca.bounding_radius + cb.bounding_radius;
+
+                if (dc2 > rsum * rsum) continue;
+
+                // Уровень 3 — воксели внутри пересекающихся чанков
+                for (int ra = ca.row_start; ra < ca.row_end; ++ra)
+                {
+                    for (int ca_col = ca.col_start; ca_col < ca.col_end; ++ca_col)
+                    {
+                        const Voxel* va = voxel_at(ca_col, ra);
+                        if (!va || !va->is_alive()) continue;
+
+                        // Центр вокселя A → локальное пространство B
+                        const glm::vec2 va_in_B = collision_math::a_local_to_b_local(
+                            va->center, posA, angA, posB, angB);
+
+                        // Прямой поиск вокселя B по индексу (O(1))
+                        const int col_b = static_cast<int>(
+                            (va_in_B.x + other.cols_ * cs * 0.5f) / cs);
+                        const int row_b = static_cast<int>(
+                            (va_in_B.y + other.rows_ * cs * 0.5f) / cs);
+
+                        // Проверяем и соседние клетки B на случай погрешности поворота
+                        for (int dr = -1; dr <= 1; ++dr)
+                        {
+                            for (int dc_idx = -1; dc_idx <= 1; ++dc_idx)
+                            {
+                                const Voxel* vb = other.voxel_at(col_b + dc_idx, row_b + dr);
+                                if (!vb || !vb->is_alive()) continue;
+
+                                // Финальная проверка: вписанные окружности вокселей
+                                const glm::vec2 va_world =
+                                    collision_math::local_to_world(va->center, posA, angA);
+                                const glm::vec2 vb_world =
+                                    collision_math::local_to_world(vb->center, posB, angB);
+
+                                const glm::vec2 diff = va_world - vb_world;
+                                const float dist2 = diff.x * diff.x + diff.y * diff.y;
+
+                                if (dist2 < touch_dist2)
+                                {
+                                    // Нормаль: от центра B к центру A (в мировом пространстве)
+                                    const glm::vec2 ab = posA - posB;
+                                    const float ab_len = std::sqrt(ab.x * ab.x + ab.y * ab.y);
+                                    const glm::vec2 normal = (ab_len > 1e-6f)
+                                        ? ab / ab_len
+                                        : glm::vec2{1.f, 0.f};
+
+                                    contacts.push_back({
+                                        (va_world + vb_world) * 0.5f,
+                                        normal
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return contacts;
+    }
+
+    // -----------------------------------------------------------------------
+    //  Удобный метод: проверить коллизию и нанести урон в точках контакта.
+    //  Возвращает true если коллизия произошла.
+    // -----------------------------------------------------------------------
+    bool collide_and_damage(DestructibleObject& other, float damage, float radius = 0.f)
+    {
+        const auto contacts = find_contacts(other);
+        if (contacts.empty()) return false;
+
+        for (const ContactPoint& cp : contacts)
+        {
+            apply_damage(cp.world_pos, damage, radius);
+            other.apply_damage(cp.world_pos, damage, radius);
+        }
+
+        return true;
+    }
 
 private:
+    // -----------------------------------------------------------------------
+    //  Локальный чанк (блок вокселей в локальном пространстве объекта).
+    //  Хранит AABB и описывающую окружность — не зависит от поворота объекта.
+    // -----------------------------------------------------------------------
+    struct LocalChunk
+    {
+        glm::vec2 local_min;       // AABB в локальных координатах
+        glm::vec2 local_max;
+        glm::vec2 local_center;    // центр AABB
+        float     bounding_radius; // радиус описывающей окружности чанка
+
+        int col_start, row_start;
+        int col_end,   row_end;
+    };
+
+    static constexpr int CHUNK_SIZE = 8;
+    std::vector<LocalChunk> local_chunks_;
+
+    // -----------------------------------------------------------------------
+    //  Построить/перестроить локальные чанки.
+    //  Вызывается после build_voxels, apply_damage и split_if_disconnected.
+    // -----------------------------------------------------------------------
+    void build_local_chunks()
+    {
+        local_chunks_.clear();
+        const float cs = params_.cell_size;
+
+        for (int cr = 0; cr * CHUNK_SIZE < rows_; ++cr)
+        {
+            for (int cc = 0; cc * CHUNK_SIZE < cols_; ++cc)
+            {
+                LocalChunk chunk;
+                chunk.col_start = cc * CHUNK_SIZE;
+                chunk.row_start = cr * CHUNK_SIZE;
+                chunk.col_end   = std::min(chunk.col_start + CHUNK_SIZE, cols_);
+                chunk.row_end   = std::min(chunk.row_start + CHUNK_SIZE, rows_);
+
+                // AABB в локальных координатах (без позиции и угла объекта)
+                chunk.local_min = {
+                    (chunk.col_start - cols_ * 0.5f) * cs,
+                    (chunk.row_start - rows_ * 0.5f) * cs
+                };
+                chunk.local_max = {
+                    (chunk.col_end   - cols_ * 0.5f) * cs,
+                    (chunk.row_end   - rows_ * 0.5f) * cs
+                };
+                chunk.local_center  = (chunk.local_min + chunk.local_max) * 0.5f;
+
+                const glm::vec2 half = (chunk.local_max - chunk.local_min) * 0.5f;
+                chunk.bounding_radius = std::sqrt(half.x * half.x + half.y * half.y);
+
+                // Пропускаем чанки без живых вокселей
+                bool has_active = false;
+                for (int r = chunk.row_start; r < chunk.row_end && !has_active; ++r)
+                    for (int c = chunk.col_start; c < chunk.col_end && !has_active; ++c)
+                        if (auto* vx = voxel_at(c, r); vx && vx->is_alive())
+                            has_active = true;
+
+                if (has_active)
+                    local_chunks_.push_back(chunk);
+            }
+        }
+    }
+
     // -----------------------------------------------------------------------
     void build_voxels(unsigned char alpha_threshold)
     {
@@ -373,8 +652,8 @@ private:
 
                 // Центрируем сетку вокруг origin
                 vx.center = {
-                    params_.origin.x + (col + 0.5f - cols_ * 0.5f) * cs,
-                    params_.origin.y + (row + 0.5f - rows_ * 0.5f) * cs
+                    (col + 0.5f - cols_ * 0.5f) * cs,
+                    (row + 0.5f - rows_ * 0.5f) * cs
                 };
                 vx.hp     = params_.default_hp;
                 vx.status = VoxelStatus::Absent;
@@ -417,11 +696,46 @@ private:
         vx.status = VoxelStatus::Absent;
     }
 
+    void update_boundary()
+    {
+        for (int i = 0; i < (cols_ * rows_); ++i) {
+            if (i < cols_ || // верхняя граница
+                (i + 1) % (rows_ + 1) == 0 || // правая граница
+                i % (rows_ + 1) == 0 || // левая граница
+                i < cols_ * (rows_ - 1)) // нижняя граница
+            {
+                if (voxels_[i].is_alive()) {
+                    voxels_[i].status = VoxelStatus::Boundary;
+                }
+                continue;
+            }
+
+            if (voxels_[i].is_alive()) {
+                if (voxels_[i + 1].is_alive() &&
+                    voxels_[i - 1].is_alive() &&
+                    voxels_[i + cols_].is_alive() &&
+                    voxels_[i - cols_].is_alive()
+                ) voxels_[i].status = VoxelStatus::Active;
+                else {
+                    voxels_[i].status = VoxelStatus::Boundary;
+                }
+            }
+        }
+    }
+
+    std::vector<Voxel> get_boundary()
+    {
+        std::vector<Voxel> boundary_voxels;
+        for (const size_t& i : boundary_) {
+            boundary_voxels.push_back(voxels_[i]);
+        }
+        return boundary_voxels;
+    }
+
     void update_transform()
     {
         auto& transform = repo_.getTransform(local_transform_);
-        transform.x = params_.origin.x;
-        transform.y = params_.origin.y;
+        transform.position = params_.origin;
     }
 
     SpritesRepository& repo_;
@@ -430,7 +744,8 @@ private:
     uv_rect            local_UV_;
     size_t             local_transform_;
 
-    std::vector<Voxel> voxels_;
+    std::vector<Voxel>   voxels_;
+    std::vector<size_t>  boundary_;
     int cols_ = 0;
     int rows_ = 0;
 };

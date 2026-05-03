@@ -49,17 +49,15 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/graphics/Atlas.ixx
         src/graphics/Shader.ixx
         src/graphics/Camera.ixx
-        src/graphics/textBox.ixx
         src/graphics/Font.ixx
         src/graphics/Resources.ixx
         src/graphics/Locale.ixx
         src/graphics/SpritesRepository.ixx
-        src/graphics/BoundedFrame.ixx
-        src/graphics/TextWindow.ixx
 
         src/game/Spaceship.ixx
         src/game/Destruction.ixx
         src/game/DestructibleObject.ixx
+        src/game/Scene.ixx
 
         src/misc/Multitype_index_repository.ixx
 
