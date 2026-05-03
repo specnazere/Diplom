@@ -158,10 +158,12 @@ namespace game
 
         auto scene = Scene();
         auto ship = DestructibleObject(repo, res.texturesRepo[shipTexture].object, atlas->get_uv(shipTexture), {5, 5, 0, 1, {0, -200}});
-        auto ship2 = DestructibleObject(repo, res.texturesRepo[shipTexture].object, atlas->get_uv(shipTexture), {5, 5, 0, 1, {0, 100}});
-        scene.add(std::unique_ptr<DestructibleObject>(&ship), {{0, 10}, 0});
-        scene.add(std::unique_ptr<DestructibleObject>(&ship2), {{0, -10}, 0});
+        auto ship2 = DestructibleObject(repo, res.texturesRepo[shipTexture].object, atlas->get_uv(shipTexture), {5, 5, 0, 1, {0, 200}});
+        scene.add(std::unique_ptr<DestructibleObject>(&ship));
+        scene.add(std::unique_ptr<DestructibleObject>(&ship2));
 
+        ship.angular_velocity = -15;
+        ship.velocity = {0, 10};
 
         // === Игровой цикл ===
         double last_time = glfwGetTime();

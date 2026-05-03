@@ -58,6 +58,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/game/Destruction.ixx
         src/game/DestructibleObject.ixx
         src/game/Scene.ixx
+        src/game/PlayerController.ixx
 
         src/misc/Multitype_index_repository.ixx
 

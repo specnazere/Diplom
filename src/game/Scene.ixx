@@ -18,12 +18,6 @@ import sprite_repository;
 import texture;
 import atlas;
 
-export struct ObjectParams
-{
-    glm::vec2 velocity;
-    float angular_velocity;
-};
-
 // ---------------------------------------------------------------------------
 //  ObjectHandle — идентификатор объекта в сцене.
 //  Поколение (generation) защищает от обращения к удалённому слоту.
@@ -91,7 +85,7 @@ public:
     // -----------------------------------------------------------------------
     //  Добавить объект в сцену. Возвращает хэндл для последующего доступа.
     // -----------------------------------------------------------------------
-    ObjectHandle add(std::unique_ptr<DestructibleObject> obj, ObjectParams params = {{0, 0}, 0})
+    ObjectHandle add(std::unique_ptr<DestructibleObject> obj)
     {
         assert(obj != nullptr);
 
@@ -102,8 +96,6 @@ public:
             {
                 slots_[i].obj      = std::move(obj);
                 slots_[i].occupied = true;
-                slots_[i].velocity = params.velocity;
-                slots_[i].angular_velocity = params.angular_velocity;
                 // generation уже инкрементирован при удалении
                 return { i, slots_[i].generation };
             }
@@ -111,7 +103,7 @@ public:
 
         // Нет свободных слотов — расширяем
         const uint32_t idx = static_cast<uint32_t>(slots_.size());
-        slots_.push_back({ std::move(obj), params.velocity, params.angular_velocity, 0, true });
+        slots_.push_back({ std::move(obj), 0, true });
         return { idx, 0 };
     }
 
@@ -186,39 +178,107 @@ public:
             DestructibleObject& a = *slots_[ia].obj;
             DestructibleObject& b = *slots_[ib].obj;
 
-            auto contacts = a.find_contacts(b);
-            if (contacts.empty()) continue;
+            ContactPoint contact = a.find_contacts(b);
 
-            // if (on_collision_)
+            if (contact.normal == glm::vec2(0, 0)) continue;
+
+            // 1. Подготовка данных
+            const float restitution = 0.8f; // Попробуй разные значения: 0.0, 0.5, 0.9
+            const float percent = 1.f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
+            const float slop = 0.01f;       // Допуск проникновения (меньше этого значения не корректируем, чтобы избежать дрожания)
+
+            const glm::vec2 posA = a.get_position();
+            const glm::vec2 posB = b.get_position();
+
+            const float mA = a.get_mass();
+            const float mB = b.get_mass();
+            const float IA = a.get_inertia_moment();
+            const float IB = b.get_inertia_moment();
+
+            // Векторы от центров масс до точки контакта
+            const glm::vec2 rA = contact.world_pos - posA;
+            const glm::vec2 rB = contact.world_pos - posB;
+
+            // 2. Расчет скоростей в точке контакта
+            const glm::vec2 vA = a.velocity + glm::vec2(-a.angular_velocity * rA.y, a.angular_velocity * rA.x);
+            const glm::vec2 vB = b.velocity + glm::vec2(-b.angular_velocity * rB.y, b.angular_velocity * rB.x);
+
+            const glm::vec2 vRel = vA - vB;
+
+            glm::vec2 n = contact.normal;
+            float lenN = glm::length(n);
+            if (lenN < 1e-6f) continue;
+            n /= lenN;
+
+            // Проекция относительной скорости на нормаль
+            float velAlongNormal = glm::dot(vRel, n);
+
+            // Если тела разлетаются, не применяем импульс (но коррекция позиции может быть нужна!)
+            // Для чистоты эксперимента пока оставим выход, если разлетаются
+            // if (velAlongNormal > 0)
             // {
-            //     CollisionEvent ev {
-            //         { ia, slots_[ia].generation },
-            //         { ib, slots_[ib].generation },
-            //         contacts
-            //     };
-            //     CollisionResponse resp = on_collision_(ev);
-            //
-            //     bool a_damaged = false;
-            //     bool b_damaged = false;
-            //
-            //     if (resp.damage_to_a > 0.f || resp.damage_to_b > 0.f)
-            //     {
-            //         for (const ContactPoint& cp : contacts)
-            //         {
-            //             if (resp.damage_to_a > 0.f)
-            //                 a_damaged |= a.apply_damage(cp.world_pos, resp.damage_to_a, resp.damage_radius);
-            //             if (resp.damage_to_b > 0.f)
-            //                 b_damaged |= b.apply_damage(cp.world_pos, resp.damage_to_b, resp.damage_radius);
-            //         }
-            //     }
-            //
-            //     if (a_damaged) damaged_slots.push_back(ia);
-            //     if (b_damaged) damaged_slots.push_back(ib);
+            //     // Опционально: можно сделать коррекцию позиции даже при разлете, если есть проникновение
+            //     // Но для начала оставим так
+            //     continue;
             // }
 
-            for (auto& contact : contacts) {
-                slots_[ia].velocity += glm::vec2(contact.normal.x / 2, contact.normal.y / 2);
-                slots_[ib].velocity -= glm::vec2(contact.normal.x / 2, contact.normal.y / 2);
+            // 3. Расчет импульса (J)
+            const float raCrossN = rA.x * n.y - rA.y * n.x;
+            const float rbCrossN = rB.x * n.y - rB.y * n.x;
+
+            const float invMassSum = (1.0f / mA) + (1.0f / mB);
+            const float invInertiaSum = (raCrossN * raCrossN) / IA + (rbCrossN * rbCrossN) / IB;
+
+            if (invMassSum + invInertiaSum < 1e-9f) continue;
+
+            float j = -(1.0f + restitution) * velAlongNormal;
+            j /= (invMassSum + invInertiaSum);
+
+            const glm::vec2 impulse = n * j;
+
+            // 4. Применение импульса к скоростям
+            a.velocity += impulse * (1.0f / mA);
+            b.velocity -= impulse * (1.0f / mB);
+
+            a.angular_velocity += (rA.x * impulse.y - rA.y * impulse.x) / IA;
+            b.angular_velocity -= (rB.x * impulse.y - rB.y * impulse.x) / IB;
+
+            // 5. Позиционная коррекция (ВАЖНО!)
+            // Рассчитываем глубину проникновения.
+            // В твоем случае, так как это воксели, точную глубину сложно взять из одной точки.
+            // Но мы можем оценить её через относительную скорость и dt, или просто сдвинуть на фиксированную величину,
+            // если известно, что они пересекаются.
+
+            // Упрощенный вариант: сдвигаем тела вдоль нормали, чтобы уменьшить перекрытие.
+            // Так как у нас нет явной глубины проникновения из find_contacts,
+            // используем эвристику: если был удар, значит было перекрытие.
+            // Стандартный подход в импульсной физике:
+            // correction = max(penetration - slop, 0) / (invMassA + invMassB) * percent
+
+            // Поскольку ты не передаешь глубину проникновения, давай оценим её грубо:
+            // Если мы здесь, значит воксели пересеклись.
+            // Для стабильности можно просто слегка раздвинуть объекты вдоль нормали.
+
+            // Вариант А: Если бы у тебя была глубина (penetration):
+            // float penetration = ...;
+            // float correction_mag = std::max(penetration - slop, 0.0f) / (invMassSum) * percent;
+
+            // Вариант Б (для твоего кода):
+            // Так как точная глубина неизвестна, но мы знаем, что контакт есть,
+            // можно использовать "баг-фикс" от дрожания:
+            // Если скорость после удара очень мала, а объекты все еще близко, их может "зажевать".
+
+            // Давай добавим простую коррекцию, основанную на том, что мы хотим убрать относительную скорость проникновения.
+            // Но лучше всего — передать глубину из find_contacts.
+
+            // Пока что, чтобы увидеть эффект, попробуй просто жестко раздвинуть на малую величину,
+            // если коэффициент упругости высокий, чтобы они не "залипали".
+
+            if (restitution > 0.1f) {
+                 const float correctionMag = 0.05f; // Подбери экспериментально (в единицах твоего мира)
+                 const glm::vec2 correction = n * correctionMag;
+                 a.add_position(correction * (1.0f / mA) / invMassSum * percent); // Распределение по массам
+                 b.add_position(-correction * (1.0f / mB) / invMassSum * percent);
             }
         }
 
@@ -248,7 +308,7 @@ public:
             add(std::move(frag));
 
         for (auto& slot : slots_) {
-            slot.obj->add_position({slot.velocity.x * dt, slot.velocity.y * dt});
+            slot.obj->update_position(dt);
         }
     }
 
@@ -290,8 +350,6 @@ private:
     struct Slot
     {
         std::unique_ptr<DestructibleObject> obj;
-        glm::vec2 velocity = {0, 0};
-        float angular_velocity = 0;
         uint32_t generation = 0;
         bool     occupied   = false;
     };
