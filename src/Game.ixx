@@ -27,6 +27,7 @@ import atlas;
 import destruction;
 import destructible_object;
 import scene;
+import player_controller;
 
 // Вызывается из main.cpp как game::run()
 export
@@ -162,8 +163,7 @@ namespace game
         scene.add(std::unique_ptr<DestructibleObject>(&ship));
         scene.add(std::unique_ptr<DestructibleObject>(&ship2));
 
-        ship.angular_velocity = -15;
-        ship.velocity = {0, 10};
+        PlayerController controller(ship);
 
         // === Игровой цикл ===
         double last_time = glfwGetTime();
@@ -179,6 +179,16 @@ namespace game
             //     glfwWaitEventsTimeout(frame_time - delta);
             //     continue;
             // }
+            //
+            InputState input;
+            input.up    = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
+            input.down  = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
+            input.left  = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
+            input.right = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
+            input.rotate_left  = glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS;
+            input.rotate_right = glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS;
+
+            controller.update(delta, input);
 
             scene.update(delta);
 
