@@ -33,15 +33,31 @@ import player_controller;
 export
 namespace game
 {
-    int run()
+    GLFWwindow* window = nullptr;
+    Resources res = Resources();
+
+    // Глобальный репозиторий спрайтов, если он нужен везде
+    // Лучше инкапсулировать его внутри Renderer или Scene, но пока оставим так для совместимости с твоим кодом
+    std::unique_ptr<SpritesRepository> global_repo = nullptr;
+
+    enum class GameState
     {
-        // === Инициализация GLFW ===
+        Menu,
+        Scene,
+        Exit
+    };
+
+    // --- Вспомогательная функция инициализации (вызывается один раз) ---
+    void init_systems()
+    {
+        if (window) return; // Уже инициализировано
+
         glfwInit();
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-        GLFWwindow* window = glfwCreateWindow(1600, 1200, "Hello World!", nullptr, nullptr);
+        window = glfwCreateWindow(1600, 1200, "Hello World!", nullptr, nullptr);
         if (!window) {
             const char* err_buffer = nullptr;
             glfwGetError(&err_buffer);
@@ -58,128 +74,110 @@ namespace game
             throw std::runtime_error("Failed to load OpenGL: " + std::string(err_buffer));
         }
 
-        // === Инициализация ресурсов ===
-        Resources res;
-
-        // Загружаем таблицу локализации
+        // Загрузка ресурсов
         res.loadLocaleFile("res/localiz/placeholders.csv");
-
-        // Загружаем файл шрифта (данные TTF, без растеризации)
         res.loadFontFile("res/fonts/trafaretkit.ttf", "basic");
 
-        size_t shipTexture = res.loadTextureFile("spaceship", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
+        res.loadTextureFile("spaceship", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
 
-        // Получаем набор символов из первой (или нужной) локали
-        // Предполагаем, что loadLocaleFile добавил локаль "ru" (или нужную)
-        // Charset строим из всех имеющихся локалей
         std::set<char32_t> combined_charset;
-        {
-            // Добавляем основной charset из загруженной локали.
-            // Предполагаем ключ "ru" — скорректируйте под реальный дескриптор в CSV.
-            Locale& loc = res.localesRepo["russian"].object;
-            const auto& cs = loc.getCharset();
-            combined_charset.insert(cs.begin(), cs.end());
-        }
+        Locale& loc = res.localesRepo["russian"].object;
+        const auto& cs = loc.getCharset();
+        combined_charset.insert(cs.begin(), cs.end());
 
-        // Растеризуем глифы шрифта под полученный charset
         res.initFontWithCharset(combined_charset, 150, "basic");
 
-        // Получаем ссылку на шрифт и связываем его с атласом
         Font& font = res.fontsRepo["basic"].object;
-
-        // Создаём GPU-атлас из текстуры шрифта
         Atlas* atlas = res.createAtlas();
         if (!atlas)
             throw std::runtime_error("Failed to create texture atlas");
 
-        // === Инициализация репозитория спрайтов ===
-        // Перемещаем атлас в репозиторий (он там хранится по значению)
-        SpritesRepository repo;
-        repo.atlas = std::move(*atlas);
+        // Инициализация репозитория спрайтов
+        global_repo = std::make_unique<SpritesRepository>();
+        global_repo->atlas = std::move(*atlas);
 
-        //win.resize(600, 400);
-        //win.move(150, 250);
+        // Инициализация рендерера
+        Renderer::init(window, global_repo.get());
+    }
 
-        // === Инициализация рендерера ===
-        Renderer::init(window, &repo);
+    // --- Состояние Меню ---
+    GameState menu_state()
+    {
+        // Здесь должен быть цикл меню
+        // Пример упрощенной реализации:
+        while (!glfwWindowShouldClose(window))
+        {
+            glfwPollEvents();
 
-        // PhysicsScene scene;
-        // auto obj1 = scene.add(
-        //     PhysicsObject(
-        //         DestructibleObject(
-        //             repo,
-        //             res.texturesRepo[shipTexture].object,
-        //             atlas->get_uv(shipTexture),
-        //             DestructibleObject::Params(
-        //                 1,
-        //                 10,
-        //                 0,
-        //                 1,
-        //                 glm::vec2(
-        //                     0.0f,
-        //                     100.0f
-        //                 )
-        //             )
-        //         ),
-        //         PhysicsObject::Params(
-        //             1,
-        //             15,
-        //             1,
-        //             0.1f
-        //         )
-        //     )
-        // );
-        // auto obj2 = scene.add(
-        //     PhysicsObject(
-        //         DestructibleObject(
-        //             repo,
-        //             res.texturesRepo[shipTexture].object,
-        //             atlas->get_uv(shipTexture),
-        //             DestructibleObject::Params(
-        //                 1,
-        //                 10,
-        //                 0,
-        //                 1,
-        //                 glm::vec2(
-        //                     0.0f,
-        //                     -200.0f
-        //                 )
-        //             )
-        //         ),
-        //         PhysicsObject::Params(
-        //             1,
-        //             15,
-        //             1,
-        //             0.1f
-        //         )
-        //     )
-        // );
-        //
-        // obj1->apply_impulse({0, -100}, {0, 100});
+            // Очистка экрана (например, черным)
+            glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        auto scene = Scene();
-        auto ship = DestructibleObject(repo, res.texturesRepo[shipTexture].object, atlas->get_uv(shipTexture), {5, 5, 0, 1, {0, -200}});
-        auto ship2 = DestructibleObject(repo, res.texturesRepo[shipTexture].object, atlas->get_uv(shipTexture), {5, 5, 0, 1, {0, 200}});
-        scene.add(std::unique_ptr<DestructibleObject>(&ship));
-        scene.add(std::unique_ptr<DestructibleObject>(&ship2));
+            // TODO: Отрисовка UI меню (ImGui или твои спрайты)
+            // Если нажата кнопка "Start", возвращаем GameState::Scene
 
-        PlayerController controller(ship);
+            // Для примера: нажми SPACE для перехода в игру
+            if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+                return GameState::Scene;
+            }
 
-        // === Игровой цикл ===
+            // Нажми ESC для выхода
+            if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+                return GameState::Exit;
+            }
+
+            glfwSwapBuffers(window);
+        }
+        return GameState::Exit;
+    }
+
+    // --- Состояние Сцены ---
+    GameState scene_state()
+    {
+        // Инициализация объектов сцены (происходит при входе в состояние)
+        Scene scene;
+
+        // ВАЖНО: Создаем объекты в куче
+        auto ship = std::make_unique<DestructibleObject>(
+            *global_repo,
+            res.texturesRepo["spaceship"].object, // Используем дескриптор или ID корректно
+            global_repo->atlas.get_uv(res.texturesRepo["spaceship"].iDesc), // Проверь API получения UV
+            DestructibleObject::Params{5, 5, 0, 1, {0, -200}}
+        );
+
+        auto ship2 = std::make_unique<DestructibleObject>(
+            *global_repo,
+            res.texturesRepo["spaceship"].object,
+            global_repo->atlas.get_uv(res.texturesRepo["spaceship"].iDesc),
+            DestructibleObject::Params{5, 5, 0, 1, {0, 200}}
+        );
+
+        // Сохраняем сырые указатели для контроллера, но владение у Scene
+        DestructibleObject* ship_ptr = ship.get();
+
+        scene.add(std::move(ship));
+        scene.add(std::move(ship2));
+
+        PlayerController controller(*ship_ptr);
+
         double last_time = glfwGetTime();
-        constexpr double target_fps  = 60.0;
-        constexpr double frame_time  = 1.0 / target_fps;
+        constexpr double target_fps = 60.0;
+        constexpr double frame_time = 1.0 / target_fps;
 
         while (!glfwWindowShouldClose(window))
         {
             const double current_time = glfwGetTime();
-            const double delta        = current_time - last_time;
+            const double delta = current_time - last_time;
 
-            // if (delta < frame_time) {
-            //     glfwWaitEventsTimeout(frame_time - delta);
-            //     continue;
-            // }
-            //
+            // Ограничение FPS (опционально, раскомментируй если нужно)
+            /*
+            if (delta < frame_time) {
+                glfwWaitEventsTimeout(frame_time - delta);
+                continue;
+            }
+            */
+
+            // Input
             InputState input;
             input.up    = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
             input.down  = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
@@ -188,17 +186,54 @@ namespace game
             input.rotate_left  = glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS;
             input.rotate_right = glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS;
 
+            // Update
             controller.update(delta, input);
-
             scene.update(delta);
 
             last_time = current_time;
+
+            // Render
             glfwPollEvents();
-            Renderer::renderAll(0);
+            Renderer::renderAll(0); // Или передавай delta, если рендерер анимирует что-то
             glfwSwapBuffers(window);
+
+            // Условие выхода из сцены обратно в меню
+            if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+                return GameState::Menu;
+            }
+        }
+        return GameState::Exit;
+    }
+
+    int run()
+    {
+        init_systems();
+
+        GameState current_state = GameState::Menu;
+
+        while (current_state != GameState::Exit)
+        {
+            switch (current_state)
+            {
+                case GameState::Menu:
+                    current_state = menu_state();
+                    break;
+
+                case GameState::Scene:
+                    current_state = scene_state();
+                    break;
+
+                default:
+                    current_state = GameState::Exit;
+                    break;
+            }
         }
 
-        glfwDestroyWindow(window);
+        // Cleanup
+        if (window) {
+            glfwDestroyWindow(window);
+            window = nullptr;
+        }
         glfwTerminate();
         return 0;
     }
