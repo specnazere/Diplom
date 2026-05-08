@@ -10,6 +10,7 @@ module;
 #include <algorithm>
 #include <cassert>
 #include <utility>
+#include <mutex> // Added
 
 export module scene;
 
@@ -89,6 +90,7 @@ public:
     {
         assert(obj != nullptr);
 
+        std::lock_guard<std::mutex> lock(mutex_);
         // Ищем свободный слот среди удалённых
         for (uint32_t i = 0; i < static_cast<uint32_t>(slots_.size()); ++i)
         {
@@ -113,6 +115,7 @@ public:
     bool remove(ObjectHandle handle)
     {
         if (!is_alive(handle)) return false;
+        std::lock_guard<std::mutex> lock(mutex_);
         free_slot(handle.index);
         return true;
     }
@@ -150,6 +153,19 @@ public:
     }
 
     // -----------------------------------------------------------------------
+    //  Manual lock/unlock for external synchronization
+    // -----------------------------------------------------------------------
+    void lock()
+    {
+        mutex_.lock();
+    }
+
+    void unlock()
+    {
+        mutex_.unlock();
+    }
+
+    // -----------------------------------------------------------------------
     //  Обновить сцену за один кадр.
     //
     //  Алгоритм:
@@ -163,6 +179,8 @@ public:
     // -----------------------------------------------------------------------
     void update(float dt)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
+
         rebuild_signatures();
 
         // Пары, прошедшие broad-phase
@@ -372,6 +390,7 @@ private:
     std::vector<Slot>      slots_;
     std::vector<Signature> signatures_; // живёт один кадр, пересобирается в update()
     CollisionCallback      on_collision_;
+    mutable std::mutex     mutex_;       // Added
 
     // -----------------------------------------------------------------------
     //  Пересобрать сигнатуры для всех живых объектов

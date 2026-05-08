@@ -30,7 +30,9 @@ target_link_libraries(glad PUBLIC glfw)
 # Если вы оставили .cpp, просто замените .ixx на .cpp в этом списке.
 
 # Основное приложение
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp
+        src/netcode/paket_defines.h
+        src/netcode/protocols/Atlas_sync_protocol.ixx)
 
 # 1. Обычные источники (main.cpp, старые .cpp библиотеки)
 # Они не являются модулями, поэтому добавляются как обычные источники
@@ -60,6 +62,15 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/game/Scene.ixx
         src/game/PlayerController.ixx
 
+        src/netcode/protocols/Scene_sync_protocol.ixx
+        src/netcode/protocols/Resource_sync_protocol.ixx
+        src/netcode/protocols/Atlas_sync_protocol.ixx
+        src/netcode/Native_tcp.ixx
+        src/netcode/Host_resource_sync.ixx
+        src/netcode/Client_resource_sync.ixx
+        src/netcode/Host_scene_sync.ixx
+        src/netcode/Client_scene_sync.ixx
+
         src/misc/Multitype_index_repository.ixx
 
         src/Game.ixx
@@ -73,24 +84,13 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # Линковка
 target_link_libraries(${PROJECT_NAME} PRIVATE
+        ws2_32
         glad
         glm::glm
         OpenGL::GL
-)
-# Подключение директорий
-# Важно: даже с модулями, если внутри :private используется #include <glm/...>,
-# пути должны быть доступны компилятору.
-target_include_directories(${PROJECT_NAME} PRIVATE
-        src
-        thirdparty
 )
 
-# Линковка
-target_link_libraries(${PROJECT_NAME} PRIVATE
-        glad
-        glm::glm
-        OpenGL::GL
-)
+target_compile_definitions(${PROJECT_NAME} PRIVATE _GLIBCXX_STDLIB_H=1)
 
 # --- Ресурсы (логика копирования сохранена и немного улучшена) ---
 set(RES_SOURCE_DIR "${CMAKE_SOURCE_DIR}/res")

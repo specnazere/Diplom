@@ -2,9 +2,9 @@
 // Created by A on 27.01.2026.
 //
 module;
+
 #include "glm/fwd.hpp"
 #include "uv_rect.h"
-#include <cstddef>
 
 export module sprite;
 

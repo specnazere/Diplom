@@ -72,4 +72,19 @@ public:
                        [](const auto& pair) { return pair.first; });
         return keys;
     }
+
+    unsigned int get_id(const std::string& sDesc) const {
+        auto it = sDescToIndex.find(sDesc);
+        if (it != sDescToIndex.end()) {
+            return it->second; // Это индекс в векторе, но нам нужен iDesc (ключ в iDescToIndex)
+            // Стоп. В твоей реализации:
+            // sDescToIndex maps string -> index in vector
+            // iDescToIndex maps iDesc (lastDesc) -> index in vector
+            // signedContainers[index].iDesc is the actual ID used externally.
+
+            size_t vecIndex = it->second;
+            return signedContainers[vecIndex].iDesc;
+        }
+        throw std::runtime_error("Descriptor not found");
+    }
 };

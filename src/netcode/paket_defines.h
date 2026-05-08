@@ -1,0 +1,14 @@
+//
+// Created by A on 08.05.2026.
+//
+
+#ifndef PAKET_DEFINES_H
+#define PAKET_DEFINES_H
+
+#define RESOURCES_SYNC_PACKET 100
+#define SCENE_SYNC_PACKET 101
+#define ATLAS_SYNC_PACKET 102
+
+#define UNIVERSAL_EOF_PACKET 200
+
+#endif //PAKET_DEFINES_H

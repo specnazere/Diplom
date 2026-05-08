@@ -123,7 +123,7 @@ public:
     // -----------------------------------------------------------------------
     DestructibleObject(
         SpritesRepository& repository,
-        const texture&     tex,
+        const texture&     tex, const size_t texture_id,
         const uv_rect&     local_UV,
         Params             params          = {1, 1, 0, 1, {0, 0}},
         bool chipped = false,
@@ -132,6 +132,7 @@ public:
         , tex_(tex)
         , params_(params)
         , local_UV_(local_UV)
+        , parent_texture_(texture_id)
     {
         local_transform_ = repo_.createTransform();
         repo_.getTransform(local_transform_).position = params_.origin;
@@ -332,6 +333,7 @@ public:
             fragments.emplace_back(
                 repo_,
                 tex_,
+                parent_texture_,
                 local_UV_,
                 Params(
                     params_.cell_size,
@@ -427,6 +429,11 @@ public:
     const float& get_inertia_moment() const
     {
         return inertia_moment_;
+    }
+
+    const size_t& get_parent_texture() const
+    {
+        return parent_texture_;
     }
 
     // -----------------------------------------------------------------------
@@ -871,6 +878,7 @@ private:
     Params             params_;
     uv_rect            local_UV_;
     size_t             local_transform_;
+    size_t             parent_texture_;
 
     float mass_ = 1;
     float inertia_moment_ = 1;

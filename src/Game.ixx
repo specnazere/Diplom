@@ -1,20 +1,19 @@
 //
 // Created by A on 01.02.2026.
 //
-
-// === Global module fragment: сторонние #include идут сюда, до объявления модуля ===
 module;
-
-#include <memory>
-
 #include "glad/glad.h"
 #include "GLFW/glfw3.h"
 #include "glm/glm.hpp"
-
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <set>
 #include <vector>
+#include <iostream>
+#include <thread>
+#include <chrono>
+#include <cstring>
 
 export module game;
 
@@ -29,212 +28,366 @@ import destructible_object;
 import scene;
 import player_controller;
 
-// Вызывается из main.cpp как game::run()
-export
-namespace game
-{
-    GLFWwindow* window = nullptr;
-    Resources res = Resources();
+// Сетевые модули
+import native_tcp;
+// Импорт протоколов синхронизации (предполагается, что они обновлены под TCP или используют raw send/recv)
+import resource_sync_protocol;
+import host_resource_sync;
+import client_resource_sync;
+import scene_sync_protocol;
+import host_scene_sync;
+import client_scene_sync;
 
-    // Глобальный репозиторий спрайтов, если он нужен везде
-    // Лучше инкапсулировать его внутри Renderer или Scene, но пока оставим так для совместимости с твоим кодом
-    std::unique_ptr<SpritesRepository> global_repo = nullptr;
+export namespace game {
 
-    enum class GameState
-    {
-        Menu,
-        Scene,
-        Exit
-    };
+GLFWwindow* window = nullptr;
+Resources res = Resources();
+std::unique_ptr<SpritesRepository> global_repo = nullptr;
 
-    // --- Вспомогательная функция инициализации (вызывается один раз) ---
-    void init_systems()
-    {
-        if (window) return; // Уже инициализировано
+enum class GameState { Menu, Scene, Exit };
+enum class NetworkMode { Singleplayer, Host, Client };
 
-        glfwInit();
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+// Глобальные сетевые объекты
+NetworkMode current_network_mode = NetworkMode::Singleplayer;
+std::unique_ptr<net::HostResourceSynchronizer> host_res_sync;
+std::unique_ptr<net::ClientResourceSynchronizer> client_res_sync;
+std::unique_ptr<net::HostSceneSynchronizer> host_scene_sync;
+std::unique_ptr<net::ClientSceneSynchronizer> client_scene_sync;
 
-        window = glfwCreateWindow(1600, 1200, "Hello World!", nullptr, nullptr);
-        if (!window) {
-            const char* err_buffer = nullptr;
-            glfwGetError(&err_buffer);
-            glfwTerminate();
-            throw std::runtime_error("Failed to create GLFW window: " + std::string(err_buffer));
-        }
+bool has_client_connected = false;
 
-        glfwMakeContextCurrent(window);
+// --- Helper: Init Systems ---
+void init_systems() {
+    if (window) return;
 
-        if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
-            const char* err_buffer = nullptr;
-            glfwGetError(&err_buffer);
-            glfwTerminate();
-            throw std::runtime_error("Failed to load OpenGL: " + std::string(err_buffer));
-        }
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-        // Загрузка ресурсов
-        res.loadLocaleFile("res/localiz/placeholders.csv");
-        res.loadFontFile("res/fonts/trafaretkit.ttf", "basic");
-
-        res.loadTextureFile("spaceship", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
-
-        std::set<char32_t> combined_charset;
-        Locale& loc = res.localesRepo["russian"].object;
-        const auto& cs = loc.getCharset();
-        combined_charset.insert(cs.begin(), cs.end());
-
-        res.initFontWithCharset(combined_charset, 150, "basic");
-
-        Font& font = res.fontsRepo["basic"].object;
-        Atlas* atlas = res.createAtlas();
-        if (!atlas)
-            throw std::runtime_error("Failed to create texture atlas");
-
-        // Инициализация репозитория спрайтов
-        global_repo = std::make_unique<SpritesRepository>();
-        global_repo->atlas = std::move(*atlas);
-
-        // Инициализация рендерера
-        Renderer::init(window, global_repo.get());
+    window = glfwCreateWindow(1600, 1200, "Network Game Test", nullptr, nullptr);
+    if (!window) {
+        const char* err_buffer = nullptr;
+        glfwGetError(&err_buffer);
+        glfwTerminate();
+        throw std::runtime_error("Failed to create GLFW window: " + std::string(err_buffer ? err_buffer : "Unknown error"));
     }
 
-    // --- Состояние Меню ---
-    GameState menu_state()
-    {
-        // Здесь должен быть цикл меню
-        // Пример упрощенной реализации:
-        while (!glfwWindowShouldClose(window))
-        {
-            glfwPollEvents();
+    glfwMakeContextCurrent(window);
 
-            // Очистка экрана (например, черным)
-            glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
+        const char* err_buffer = nullptr;
+        glfwGetError(&err_buffer);
+        glfwTerminate();
+        throw std::runtime_error("Failed to load OpenGL: " + std::string(err_buffer ? err_buffer : "Unknown error"));
+    }
 
-            // TODO: Отрисовка UI меню (ImGui или твои спрайты)
-            // Если нажата кнопка "Start", возвращаем GameState::Scene
+    // Load Resources
+    res.loadLocaleFile("res/localiz/placeholders.csv");
+    res.loadFontFile("res/fonts/trafaretkit.ttf", "basic");
+    res.loadTextureFile("spaceship", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
 
-            // Для примера: нажми SPACE для перехода в игру
-            if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-                return GameState::Scene;
-            }
+    std::set<char32_t> combined_charset;
+    Locale& loc = res.localesRepo["russian"].object;
+    const auto& cs = loc.getCharset();
+    combined_charset.insert(cs.begin(), cs.end());
+    res.initFontWithCharset(combined_charset, 150, "basic");
 
-            // Нажми ESC для выхода
-            if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-                return GameState::Exit;
-            }
+    Font& font = res.fontsRepo["basic"].object;
+    Atlas* atlas = res.createAtlas();
+    if (!atlas) throw std::runtime_error("Failed to create texture atlas");
 
-            glfwSwapBuffers(window);
-        }
+    global_repo = std::make_unique<SpritesRepository>();
+    global_repo->atlas = std::move(*atlas);
+
+    Renderer::init(window, global_repo.get());
+}
+
+// --- Helper: Create Scene Objects ---
+DestructibleObject* create_scene_objects(Scene& scene) {
+    auto ship = std::make_unique<DestructibleObject>(
+        *global_repo,
+        res.texturesRepo["spaceship"].object, res.texturesRepo["spaceship"].iDesc,
+        global_repo->atlas.get_uv(res.texturesRepo["spaceship"].iDesc),
+        DestructibleObject::Params{5, 5, 0, 1, {0, -200}}
+    );
+    DestructibleObject* ship_ptr = ship.get();
+    scene.add(std::move(ship));
+
+    auto ship2 = std::make_unique<DestructibleObject>(
+        *global_repo,
+        res.texturesRepo["spaceship"].object, res.texturesRepo["spaceship"].iDesc,
+        global_repo->atlas.get_uv(res.texturesRepo["spaceship"].iDesc),
+        DestructibleObject::Params{5, 5, 0, 1, {0, 200}}
+    );
+    scene.add(std::move(ship2));
+
+    return ship_ptr;
+}
+
+// --- Helper: Input Handling ---
+InputState get_input() {
+    InputState input{};
+    input.up    = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
+    input.down  = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
+    input.left   = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
+    input.right = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
+    input.rotate_left  = glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS;
+    input.rotate_right = glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS;
+    return input;
+}
+
+// --- State: Menu ---
+GameState menu_state() {
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glfwPollEvents();
+
+    if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS) {
+        current_network_mode = NetworkMode::Host;
+        std::cout << "Selected: HOST mode\n";
+        return GameState::Scene;
+    }
+    if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
+        current_network_mode = NetworkMode::Client;
+        std::cout << "Selected: CLIENT mode\n";
+        return GameState::Scene;
+    }
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+        current_network_mode = NetworkMode::Singleplayer;
+        std::cout << "Selected: SINGLEPLAYER mode\n";
+        return GameState::Scene;
+    }
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         return GameState::Exit;
     }
 
-    // --- Состояние Сцены ---
-    GameState scene_state()
-    {
-        // Инициализация объектов сцены (происходит при входе в состояние)
-        Scene scene;
+    glfwSwapBuffers(window);
+    return GameState::Menu;
+}
 
-        // ВАЖНО: Создаем объекты в куче
-        auto ship = std::make_unique<DestructibleObject>(
-            *global_repo,
-            res.texturesRepo["spaceship"].object, // Используем дескриптор или ID корректно
-            global_repo->atlas.get_uv(res.texturesRepo["spaceship"].iDesc), // Проверь API получения UV
-            DestructibleObject::Params{5, 5, 0, 1, {0, -200}}
-        );
+// --- State: Singleplayer Loop ---
+GameState run_singleplayer() {
+    Scene scene;
+    DestructibleObject* player_ship = create_scene_objects(scene);
+    PlayerController controller(*player_ship);
+    double last_time = glfwGetTime();
 
-        auto ship2 = std::make_unique<DestructibleObject>(
-            *global_repo,
-            res.texturesRepo["spaceship"].object,
-            global_repo->atlas.get_uv(res.texturesRepo["spaceship"].iDesc),
-            DestructibleObject::Params{5, 5, 0, 1, {0, 200}}
-        );
+    while (!glfwWindowShouldClose(window)) {
+        double current_time = glfwGetTime();
+        float dt = static_cast<float>(current_time - last_time);
+        last_time = current_time;
 
-        // Сохраняем сырые указатели для контроллера, но владение у Scene
-        DestructibleObject* ship_ptr = ship.get();
+        controller.update(dt, get_input());
+        scene.update(dt);
 
-        scene.add(std::move(ship));
-        scene.add(std::move(ship2));
+        glfwPollEvents();
+        Renderer::renderAll(0);
+        glfwSwapBuffers(window);
 
-        PlayerController controller(*ship_ptr);
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            return GameState::Menu;
+        }
+    }
+    return GameState::Exit;
+}
 
-        double last_time = glfwGetTime();
-        constexpr double target_fps = 60.0;
-        constexpr double frame_time = 1.0 / target_fps;
+// --- State: Host Loop ---
+GameState run_host() {
+    const unsigned short PORT = 9090;
+    Scene scene;
+    DestructibleObject* player_ship = create_scene_objects(scene);
+    PlayerController controller(*player_ship);
 
-        while (!glfwWindowShouldClose(window))
-        {
-            const double current_time = glfwGetTime();
-            const double delta = current_time - last_time;
+    try {
+        net::listen_start(PORT);
+        std::cout << "Host: Listening on port " << PORT << "\n";
 
-            // Ограничение FPS (опционально, раскомментируй если нужно)
-            /*
-            if (delta < frame_time) {
-                glfwWaitEventsTimeout(frame_time - delta);
-                continue;
+        // Ожидаем подключения клиента
+        std::cout << "Host: Waiting for connection...\n";
+        if (!net::accept_connection(10000)) { // Таймаут 10 сек на подключение
+             std::cout << "Host: No client connected, returning to menu.\n";
+             return GameState::Menu;
+        }
+
+        has_client_connected = true;
+        std::cout << "Host: Client connected!\n";
+
+        // Инициализация синхронизаторов
+        host_res_sync = std::make_unique<net::HostResourceSynchronizer>();
+
+        host_scene_sync = std::make_unique<net::HostSceneSynchronizer>();
+
+        // Синхронизируем ресурсы сразу после подключения
+        host_res_sync->sync_repository(res.texturesRepo);
+
+    } catch (const std::exception& e) {
+        std::cerr << "Network init error: " << e.what() << "\n";
+        return GameState::Menu;
+    }
+
+    double last_time = glfwGetTime();
+    uint64_t tick_count = 0;
+
+    while (!glfwWindowShouldClose(window)) {
+        double current_time = glfwGetTime();
+        float dt = static_cast<float>(current_time - last_time);
+        last_time = current_time;
+
+        // 1. Game Logic
+        controller.update(dt, get_input());
+        scene.update(dt);
+
+        // 2. Network: Send Updates
+        if (has_client_connected) {
+            tick_count++;
+            // Пример: отправка состояния сцены
+            // host_scene_sync->update(scene, tick_count);
+            // Примечание: реализация update зависит от твоего HostSceneSynchronizer
+        }
+        host_scene_sync->update(scene, tick_count);
+
+        // 3. Render
+        glfwPollEvents();
+        Renderer::renderAll(0);
+        glfwSwapBuffers(window);
+
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            return GameState::Menu;
+        }
+    }
+    return GameState::Exit;
+}
+
+// --- State: Client Loop ---
+GameState run_client() {
+    const unsigned short PORT = 9090;
+    Scene scene;
+
+    try {
+        std::cout << "Client: Connecting to 127.0.0.1:" << PORT << "\n";
+        net::connect_to_host("127.0.0.1", PORT);
+        std::cout << "Client: Connected!\n";
+
+        has_client_connected = true;
+
+        client_res_sync = std::make_unique<net::ClientResourceSynchronizer>(
+            [&](const std::string& desc, uint32_t host_id) {
+                if (res.texturesRepo.contains(desc)) {
+                    std::cout << "Client: Mapped resource " << desc << "\n";
+                }
             }
-            */
+        );
 
-            // Input
-            InputState input;
-            input.up    = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
-            input.down  = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
-            input.left  = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
-            input.right = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
-            input.rotate_left  = glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS;
-            input.rotate_right = glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS;
+        client_scene_sync = std::make_unique<net::ClientSceneSynchronizer>(scene, res, *global_repo);
 
-            // Update
-            controller.update(delta, input);
-            scene.update(delta);
+        // Загрузка маппинга ресурсов
+        client_res_sync->load_resources_mapping();
 
-            last_time = current_time;
+    } catch (const std::exception& e) {
+        std::cerr << "Network connection error: " << e.what() << "\n";
+        return GameState::Menu;
+    }
 
-            // Render
-            glfwPollEvents();
-            Renderer::renderAll(0); // Или передавай delta, если рендерер анимирует что-то
-            glfwSwapBuffers(window);
+    double last_time = glfwGetTime();
+    bool running = true;
 
-            // Условие выхода из сцены обратно в меню
-            if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+    auto sync_thread = std::thread([&]()
+    {
+        while (running) {
+            try {
+                client_scene_sync->read_all();
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Network connection error: " << e.what() << "\n";
                 return GameState::Menu;
             }
         }
-        return GameState::Exit;
+    });
+
+    // sync_thread.detach();
+
+    while (!glfwWindowShouldClose(window)) {
+        double current_time = glfwGetTime();
+        float dt = static_cast<float>(current_time - last_time);
+        last_time = current_time;
+
+        // 1. Network: Receive & Process
+        // Здесь должен быть код приема данных.
+        // Так как TCP - поток, нужно читать заголовки и диспетчеризировать.
+        // Если твои синхронизаторы имеют метод process_network_input(), вызывай его здесь.
+        // Например:
+        // client_res_sync->process_pending_packets();
+        // client_scene_sync->process_pending_packets();
+
+        // Временная заглушка, если методы еще не готовы:
+        // try {
+        //    auto pkt = net::receive_typed<SomePacket>(10); // Блокирующий вызов с таймаутом
+        // } catch (...) {}
+
+        // 2. Client Logic
+        // client_scene_sync->read_all();
+        scene.update(dt);
+
+        // 3. Render
+        glfwPollEvents();
+        Renderer::renderAll(0);
+        glfwSwapBuffers(window);
+
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            return GameState::Menu;
+        }
     }
+    running = false;
+    sync_thread.join();
 
-    int run()
-    {
-        init_systems();
+    return GameState::Exit;
+}
 
-        GameState current_state = GameState::Menu;
+// --- State: Scene Dispatcher ---
+GameState scene_state() {
+    // Reset network state
+    has_client_connected = false;
+    net::cleanup();
+    host_res_sync.reset();
+    client_res_sync.reset();
+    host_scene_sync.reset();
+    client_scene_sync.reset();
 
-        while (current_state != GameState::Exit)
-        {
-            switch (current_state)
-            {
-                case GameState::Menu:
-                    current_state = menu_state();
-                    break;
-
-                case GameState::Scene:
-                    current_state = scene_state();
-                    break;
-
-                default:
-                    current_state = GameState::Exit;
-                    break;
-            }
-        }
-
-        // Cleanup
-        if (window) {
-            glfwDestroyWindow(window);
-            window = nullptr;
-        }
-        glfwTerminate();
-        return 0;
+    switch (current_network_mode) {
+        case NetworkMode::Host:
+            return run_host();
+        case NetworkMode::Client:
+            return run_client();
+        case NetworkMode::Singleplayer:
+        default:
+            return run_singleplayer();
     }
 }
+
+int run() {
+    init_systems();
+    GameState current_state = GameState::Menu;
+    while (current_state != GameState::Exit) {
+        switch (current_state) {
+            case GameState::Menu:
+                current_state = menu_state();
+                break;
+            case GameState::Scene:
+                current_state = scene_state();
+                break;
+            default:
+                current_state = GameState::Exit;
+                break;
+        }
+    }
+
+    if (window) {
+        glfwDestroyWindow(window);
+        window = nullptr;
+    }
+    glfwTerminate();
+    return 0;
+}
+
+} // export namespace game
