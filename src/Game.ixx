@@ -2,10 +2,17 @@
 // Created by A on 01.02.2026.
 //
 module;
+
+#include <memory>
+
 #include "glad/glad.h"
 #include "GLFW/glfw3.h"
 #include "glm/glm.hpp"
-#include <memory>
+
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_glfw.h"
+#include "imgui/imgui_impl_opengl3.h"
+
 #include <stdexcept>
 #include <string>
 #include <set>
@@ -101,6 +108,15 @@ void init_systems() {
     global_repo->atlas = std::move(*atlas);
 
     Renderer::init(window, global_repo.get());
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    // Настройка стиля, шрифтов и т.д.
+    ImGui::StyleColorsDark();
+
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 430"); // Или версия твоего шейдера
 }
 
 // --- Helper: Create Scene Objects ---
@@ -137,32 +153,77 @@ InputState get_input() {
     return input;
 }
 
-// --- State: Menu ---
-GameState menu_state() {
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glfwPollEvents();
+    // --- State: Menu (ImGui) ---
+    GameState menu_state() {
+    // 1. Start ImGui Frame
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
 
-    if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS) {
-        current_network_mode = NetworkMode::Host;
-        std::cout << "Selected: HOST mode\n";
-        return GameState::Scene;
-    }
-    if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
-        current_network_mode = NetworkMode::Client;
-        std::cout << "Selected: CLIENT mode\n";
-        return GameState::Scene;
-    }
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+    // 2. Render Menu UI
+    // Центрируем окно
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 center = ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                           viewport->WorkPos.y + viewport->WorkSize.y * 0.5f);
+
+    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(400, 300));
+
+    ImGui::Begin("Main Menu", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+
+    ImGui::Text("Select Game Mode");
+    ImGui::Separator();
+
+    bool clicked = false;
+
+    if (ImGui::Button("Singleplayer", ImVec2(-1, 50))) {
         current_network_mode = NetworkMode::Singleplayer;
-        std::cout << "Selected: SINGLEPLAYER mode\n";
-        return GameState::Scene;
+        clicked = true;
     }
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+
+    ImGui::Spacing();
+
+    if (ImGui::Button("Host Game", ImVec2(-1, 50))) {
+        current_network_mode = NetworkMode::Host;
+        clicked = true;
+    }
+
+    ImGui::Spacing();
+
+    if (ImGui::Button("Join Game", ImVec2(-1, 50))) {
+        current_network_mode = NetworkMode::Client;
+        clicked = true;
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    if (ImGui::Button("Exit", ImVec2(-1, 30))) {
         return GameState::Exit;
     }
 
+    ImGui::End();
+
+    // 3. Render ImGui
+    ImGui::Render();
+
+    // Очищаем фон перед рендером ImGui (или оставляем свой clearColor, если хочешь видеть игру на фоне)
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
     glfwSwapBuffers(window);
+    glfwPollEvents();
+
+    if (clicked) {
+        return GameState::Scene;
+    }
+
+    if (glfwWindowShouldClose(window)) {
+        return GameState::Exit;
+    }
+
     return GameState::Menu;
 }
 

@@ -30,15 +30,19 @@ target_link_libraries(glad PUBLIC glfw)
 # Если вы оставили .cpp, просто замените .ixx на .cpp в этом списке.
 
 # Основное приложение
-add_executable(${PROJECT_NAME} src/main.cpp
-        src/netcode/paket_defines.h
-        src/netcode/protocols/Atlas_sync_protocol.ixx)
+add_executable(${PROJECT_NAME} src/main.cpp)
 
 # 1. Обычные источники (main.cpp, старые .cpp библиотеки)
 # Они не являются модулями, поэтому добавляются как обычные источники
 target_sources(${PROJECT_NAME} PRIVATE
         thirdparty/stb/stb_realisations.cpp
         thirdparty/tinyxml2/tinyxml2.cpp
+        thirdparty/imgui/imgui.cpp
+        thirdparty/imgui/imgui_draw.cpp
+        thirdparty/imgui/imgui_tables.cpp
+        thirdparty/imgui/imgui_widgets.cpp
+        thirdparty/imgui/imgui_impl_opengl3.cpp
+        thirdparty/imgui/imgui_impl_glfw.cpp
 )
 
 # 2. Источники модулей (C++20 Modules)
@@ -92,6 +96,22 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE _GLIBCXX_STDLIB_H=1)
 
+# --- ИСПРАВЛЕНИЕ: Отключаем сканирование модулей для сторонних .cpp файлов ---
+# GCC пытается парсить их как модули и падает на внутренних инклюдах
+set_source_files_properties(
+        thirdparty/imgui/imgui.cpp
+        thirdparty/imgui/imgui_draw.cpp
+        thirdparty/imgui/imgui_tables.cpp
+        thirdparty/imgui/imgui_widgets.cpp
+        thirdparty/imgui/imgui_impl_opengl3.cpp
+        thirdparty/imgui/imgui_impl_glfw.cpp
+        thirdparty/stb/stb_realisations.cpp
+        thirdparty/tinyxml2/tinyxml2.cpp
+        PROPERTIES
+        CXX_SCAN_FOR_MODULES OFF
+        COMPILE_OPTIONS "-include;cstdlib"
+)
+
 # --- Ресурсы (логика копирования сохранена и немного улучшена) ---
 set(RES_SOURCE_DIR "${CMAKE_SOURCE_DIR}/res")
 set(RES_TARGET_DIR "$<TARGET_FILE_DIR:${PROJECT_NAME}>/res")
@@ -112,14 +132,12 @@ add_custom_command(
 add_custom_target(copy_resources ALL DEPENDS "${RES_MARKER}")
 add_dependencies(${PROJECT_NAME} copy_resources)
 
-# --- Дополнительные настройки для конкретных компиляторов (опционально) ---
+# --- Дополнительные настройки для конкретных компиляторов ---
 if(MSVC)
-    # MSVC иногда требует явного указания языка для .ixx
     set_source_files_properties(${MODULE_SOURCES} PROPERTIES LANGUAGE CXX)
-    # Флаг для поддержки модулей в старых версиях VS 2022, в новых может не понадобиться
     target_compile_options(${PROJECT_NAME} PRIVATE /experimental:module)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    # Для GCC/Clang убеждаемся, что включен флаг сканирования (обычно включен через CMAKE_CXX_SCAN_FOR_MODULES)
-    # Но иногда полезно добавить явно, если возникают проблемы с порядком компиляции
-    target_compile_options(${PROJECT_NAME} PRIVATE -fmodules-ts)
+    # УБРАЛ target_compile_options(${PROJECT_NAME} PRIVATE -fmodules-ts)
+    # CMAKE_CXX_SCAN_FOR_MODULES ON выше уже включает необходимую логику.
+    # Лишний флаг вызывает конфликты парсинга в non-module файлах.
 endif()
