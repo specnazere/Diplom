@@ -323,4 +323,15 @@ public:
         }
         return atlas;
     }
+
+    size_t addSolidColorTexture(const std::string& sDesc, unsigned char r, unsigned char g, unsigned char b, unsigned char a = 255)
+    {
+        unsigned char* data = new unsigned char[4];
+        data[0] = r;
+        data[1] = g;
+        data[2] = b;
+        data[3] = a;
+
+        return texturesRepo.add(sDesc, texture(1, 1, data, nullptr));
+    }
 };
