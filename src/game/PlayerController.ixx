@@ -8,7 +8,7 @@ module;
 
 export module player_controller;
 
-import destructible_object;
+import destructible_entity;
 
 // Простая структура для состояния ввода
 // Можно заменить на polling из GLFW/SDL в месте вызова
@@ -27,27 +27,18 @@ export class PlayerController
 {
 public:
     // Настройки управления
-    struct Config
-    {
-        float move_acceleration   = 500.0f;  // Ускорение движения
-        float max_speed           = 300.0f;  // Максимальная скорость
-        float rotation_acceleration = 0.1f; // Ускорение вращения (градусы/сек^2 или радианы, зависит от реализации)
-        float friction            = 0.95f;   // Трение (затухание скорости)
-        float angular_friction    = 0.90f;   // Трение вращения
-    };
 
-    PlayerController(DestructibleObject& obj, Config cfg = {500.f, 300.f, 1.f, 0.95f, 0.90f})
+    PlayerController(DestructibleEntity& obj)
         : object_(obj)
-        , config_(cfg)
     {
     }
 
     // Обновление физики объекта на основе ввода
     // dt - время кадра в секундах
-    void update(float dt, const InputState& input)
+    void update(const InputState& input)
     {
-        apply_movement(input, dt);
-        apply_rotation(input, dt);
+        apply_movement(input);
+        apply_rotation(input);
         //apply_friction(dt);
 
         // Применяем изменения к трансформации объекта
@@ -55,10 +46,9 @@ public:
     }
 
 private:
-    DestructibleObject& object_;
-    Config config_;
+    DestructibleEntity& object_;
 
-    void apply_movement(const InputState& input, float dt)
+    void apply_movement(const InputState& input)
     {
         glm::vec2 force(0.0f);
 
@@ -71,46 +61,17 @@ private:
         if (force.x != 0.0f || force.y != 0.0f)
         {
             force = glm::normalize(force);
-
-            // Добавляем ускорение к текущей скорости
-            object_.velocity += force * config_.move_acceleration * dt;
         }
+        object_.apply_acceleration_signal(force);
     }
 
-    void apply_rotation(const InputState& input, float dt)
+    void apply_rotation(const InputState& input)
     {
         float torque = 0.0f;
 
         if (input.rotate_right) torque += 1.0f;
         if (input.rotate_left)  torque -= 1.0f;
 
-        if (torque != 0.0f)
-        {
-            // Угловое ускорение
-            object_.angular_velocity += torque * config_.rotation_acceleration * dt;
-        }
-    }
-
-    void apply_friction(float dt)
-    {
-        // Линейное трение
-        object_.velocity *= config_.friction;
-
-        // Ограничение максимальной скорости (опционально, но полезно для стабильности)
-        float speed = glm::length(object_.velocity);
-        if (speed > config_.max_speed)
-        {
-            object_.velocity = glm::normalize(object_.velocity) * config_.max_speed;
-        }
-
-        // Угловое трение
-        object_.angular_velocity *= config_.angular_friction;
-
-        // Остановка при очень малых значениях, чтобы избежать дрожания
-        if (std::abs(object_.angular_velocity) < 0.01f)
-            object_.angular_velocity = 0.0f;
-
-        if (glm::length(object_.velocity) < 0.01f)
-            object_.velocity = glm::vec2(0.0f);
+        object_.apply_torque_signal(torque);
     }
 };

@@ -34,13 +34,13 @@ export enum class VoxelStatus : std::uint8_t
 // ---------------------------------------------------------------------------
 export struct Voxel
 {
-    glm::vec2   center;
+    glm::vec2   center{};
     float       hp     = 1.f;
     VoxelStatus status = VoxelStatus::Absent;
     size_t      spriteIdx = ~size_t{0};
 
-    bool is_alive()   const { return status >= VoxelStatus::Active && hp > 0.f; }
-    bool has_sprite() const { return spriteIdx != ~size_t{0}; }
+    [[nodiscard]] bool is_alive()   const { return status >= VoxelStatus::Active && hp > 0.f; }
+    [[nodiscard]] bool has_sprite() const { return spriteIdx != ~size_t{0}; }
 };
 
 // ---------------------------------------------------------------------------
@@ -111,6 +111,27 @@ public:
         glm::vec2 origin = {0.f, 0.f};
     };
 
+private:
+    SpritesRepository& repo_;
+    const texture&     tex_;
+    Params             params_;
+    uv_rect            local_UV_;
+    size_t             local_transform_;
+    size_t             parent_texture_;
+
+    float mass_ = 1;
+    float inertia_moment_ = 1;
+    glm::vec2 orign_shift = {};
+
+    std::vector<Voxel>   voxels_;
+    std::vector<size_t>  boundary_;
+    int cols_ = 0;
+    int rows_ = 0;
+
+public:
+    glm::vec2 velocity = {0, 0};
+    float angular_velocity = 0;
+
     // -----------------------------------------------------------------------
     //  Конструктор
     //
@@ -163,11 +184,11 @@ public:
     // -----------------------------------------------------------------------
     //  Доступ
     // -----------------------------------------------------------------------
-    const std::vector<Voxel>& voxels() const { return voxels_; }
-    int grid_cols()                     const { return cols_; }
-    int grid_rows()                     const { return rows_; }
+    [[nodiscard]] const std::vector<Voxel>& voxels() const { return voxels_; }
+    [[nodiscard]] int grid_cols()                     const { return cols_; }
+    [[nodiscard]] int grid_rows()                     const { return rows_; }
 
-    const Voxel* voxel_at(int col, int row) const
+    [[nodiscard]] const Voxel* voxel_at(int col, int row) const
     {
         if (col < 0 || col >= cols_ || row < 0 || row >= rows_) return nullptr;
         return &voxels_[static_cast<size_t>(row * cols_ + col)];
@@ -646,9 +667,6 @@ public:
         add_position(velocity * dt);
     }
 
-    glm::vec2 velocity = {0, 0};
-    float angular_velocity = 0;
-
 private:
     // -----------------------------------------------------------------------
     //  Локальный чанк (блок вокселей в локальном пространстве объекта).
@@ -872,20 +890,4 @@ private:
         auto& transform = repo_.getTransform(local_transform_);
         transform.position = params_.origin;
     }
-
-    SpritesRepository& repo_;
-    const texture&     tex_;
-    Params             params_;
-    uv_rect            local_UV_;
-    size_t             local_transform_;
-    size_t             parent_texture_;
-
-    float mass_ = 1;
-    float inertia_moment_ = 1;
-    glm::vec2 orign_shift = {};
-
-    std::vector<Voxel>   voxels_;
-    std::vector<size_t>  boundary_;
-    int cols_ = 0;
-    int rows_ = 0;
 };

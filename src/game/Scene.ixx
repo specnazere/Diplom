@@ -201,8 +201,8 @@ public:
             if (contact.normal == glm::vec2(0, 0)) continue;
 
             // 1. Подготовка данных
-            const float restitution = 0.8f; // Попробуй разные значения: 0.0, 0.5, 0.9
-            const float percent = 1.f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
+            const float restitution = 0.6f; // Попробуй разные значения: 0.0, 0.5, 0.9
+            const float percent = -0.2f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
             const float slop = 0.01f;       // Допуск проникновения (меньше этого значения не корректируем, чтобы избежать дрожания)
 
             const glm::vec2 posA = a.get_position();

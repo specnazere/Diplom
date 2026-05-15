@@ -4,15 +4,12 @@
 module;
 
 #include <memory>
-
 #include "glad/glad.h"
 #include "GLFW/glfw3.h"
 #include "glm/glm.hpp"
-
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_glfw.h"
 #include "imgui/imgui_impl_opengl3.h"
-
 #include <stdexcept>
 #include <string>
 #include <set>
@@ -21,6 +18,8 @@ module;
 #include <thread>
 #include <chrono>
 #include <cstring>
+
+#include "graphics/uv_rect.h"
 
 export module game;
 
@@ -31,13 +30,16 @@ import locale;
 import font;
 import atlas;
 import destruction;
+
+// Новые модули
+import destructible_entity;
 import destructible_object;
+
 import scene;
 import player_controller;
 
 // Сетевые модули
 import native_tcp;
-// Импорт протоколов синхронизации (предполагается, что они обновлены под TCP или используют raw send/recv)
 import resource_sync_protocol;
 import host_resource_sync;
 import client_resource_sync;
@@ -60,7 +62,6 @@ std::unique_ptr<net::HostResourceSynchronizer> host_res_sync;
 std::unique_ptr<net::ClientResourceSynchronizer> client_res_sync;
 std::unique_ptr<net::HostSceneSynchronizer> host_scene_sync;
 std::unique_ptr<net::ClientSceneSynchronizer> client_scene_sync;
-
 bool has_client_connected = false;
 
 // --- Helper: Init Systems ---
@@ -112,33 +113,64 @@ void init_systems() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
-    // Настройка стиля, шрифтов и т.д.
     ImGui::StyleColorsDark();
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 430"); // Или версия твоего шейдера
+    ImGui_ImplOpenGL3_Init("#version 430");
 }
 
 // --- Helper: Create Scene Objects ---
-DestructibleObject* create_scene_objects(Scene& scene) {
-    auto ship = std::make_unique<DestructibleObject>(
-        *global_repo,
-        res.texturesRepo["spaceship"].object, res.texturesRepo["spaceship"].iDesc,
-        global_repo->atlas.get_uv(res.texturesRepo["spaceship"].iDesc),
-        DestructibleObject::Params{5, 5, 0, 1, {0, -200}}
-    );
-    DestructibleObject* ship_ptr = ship.get();
-    scene.add(std::move(ship));
+// Возвращает указатель на DestructibleEntity для управления
+std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& scene) {
+    std::vector<std::unique_ptr<DestructibleEntity>> entities;
 
-    auto ship2 = std::make_unique<DestructibleObject>(
-        *global_repo,
-        res.texturesRepo["spaceship"].object, res.texturesRepo["spaceship"].iDesc,
-        global_repo->atlas.get_uv(res.texturesRepo["spaceship"].iDesc),
-        DestructibleObject::Params{5, 5, 0, 1, {0, 200}}
-    );
-    scene.add(std::move(ship2));
+    const auto& tex = res.texturesRepo["spaceship"].object;
+    const size_t texId = res.texturesRepo["spaceship"].iDesc;
+    const uv_rect uv = global_repo->atlas.get_uv(texId);
 
-    return ship_ptr;
+    // Создаем первый корабль
+    auto ship1 = std::make_unique<DestructibleEntity>(
+        *global_repo,
+        tex, texId, uv,
+        DestructibleObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, -200.f}} // Cell size 5, Origin y=-200
+    );
+
+    // 2. Двигатель (привязан к нижней части корабля)
+    // Предположим, что двигатель занимает нижние 20% пикселей по высоте
+    std::vector<std::pair<int, int>> engine_coords;
+    int h_start = static_cast<int>(tex.height * 0.8f);
+    for (int x = 0; x < tex.width; ++x) {
+        for (int y = h_start; y < tex.height; ++y) {
+            engine_coords.emplace_back(x, y);
+        }
+    }
+
+    ship1->add_module(10, [](EntityStats& stats, float local_integrity, float global_integrity) {
+        // Если двигатель цел более чем на 10%, он работает
+        if (local_integrity > 0.1f) {
+            stats.force += 150000.f;
+            stats.torque += 150000.f;
+        }
+    }, engine_coords);
+
+    scene.add(std::unique_ptr<DestructibleObject>(&ship1->get_object())); // Scene должен хранить unique_ptr<DestructibleEntity> или базовый класс
+    // Примечание: Если Scene хранит только DestructibleObject*, нужно будет изменить Scene или хранить Entity отдельно.
+    // Для примера предположим, что мы храним Entity в отдельном списке или Scene адаптирован.
+    // В текущей реализации Game мы будем хранить ссылки на Entity здесь, в векторе.
+
+    entities.push_back(std::move(ship1));
+
+    // Второй корабль (противник/статичный объект)
+    auto ship2 = std::make_unique<DestructibleEntity>(
+        *global_repo,
+        tex, texId, uv,
+        DestructibleObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
+    );
+
+    scene.add(std::unique_ptr<DestructibleObject>(&ship2->get_object()));
+    entities.push_back(std::move(ship2));
+
+    return entities;
 }
 
 // --- Helper: Input Handling ---
@@ -153,15 +185,12 @@ InputState get_input() {
     return input;
 }
 
-    // --- State: Menu (ImGui) ---
-    GameState menu_state() {
-    // 1. Start ImGui Frame
+// --- State: Menu (ImGui) ---
+GameState menu_state() {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // 2. Render Menu UI
-    // Центрируем окно
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImVec2 center = ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
                            viewport->WorkPos.y + viewport->WorkSize.y * 0.5f);
@@ -204,10 +233,8 @@ InputState get_input() {
 
     ImGui::End();
 
-    // 3. Render ImGui
     ImGui::Render();
 
-    // Очищаем фон перед рендером ImGui (или оставляем свой clearColor, если хочешь видеть игру на фоне)
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -230,8 +257,14 @@ InputState get_input() {
 // --- State: Singleplayer Loop ---
 GameState run_singleplayer() {
     Scene scene;
-    DestructibleObject* player_ship = create_scene_objects(scene);
-    PlayerController controller(*player_ship);
+    auto entities = create_scene_entities(scene);
+
+    // Для примера управления берем первый корабль
+    if (entities.empty()) return GameState::Menu;
+
+    // PlayerController теперь должен работать с DestructibleObject&, который мы можем получить из Entity
+    PlayerController controller(*entities[0]);
+
     double last_time = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
@@ -239,11 +272,19 @@ GameState run_singleplayer() {
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
 
-        controller.update(dt, get_input());
         scene.update(dt);
 
+        // Управление игроком (изменяет velocity/angular_velocity внутри объекта)
+        controller.update(get_input());
+
+        // Рендеринг
         glfwPollEvents();
         Renderer::renderAll(0);
+
+        // Отладочная отрисовка модулей (опционально)
+        entities[0]->update(dt, true);
+        entities[1]->update(dt);
+
         glfwSwapBuffers(window);
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
@@ -257,29 +298,27 @@ GameState run_singleplayer() {
 GameState run_host() {
     const unsigned short PORT = 9090;
     Scene scene;
-    DestructibleObject* player_ship = create_scene_objects(scene);
-    PlayerController controller(*player_ship);
+    auto entities = create_scene_entities(scene);
+
+    if (entities.empty()) return GameState::Menu;
+    PlayerController controller(*entities[0]);
 
     try {
         net::listen_start(PORT);
         std::cout << "Host: Listening on port " << PORT << "\n";
 
-        // Ожидаем подключения клиента
         std::cout << "Host: Waiting for connection...\n";
-        if (!net::accept_connection(10000)) { // Таймаут 10 сек на подключение
-             std::cout << "Host: No client connected, returning to menu.\n";
-             return GameState::Menu;
+        if (!net::accept_connection(10000)) {
+            std::cout << "Host: No client connected, returning to menu.\n";
+            return GameState::Menu;
         }
 
         has_client_connected = true;
         std::cout << "Host: Client connected!\n";
 
-        // Инициализация синхронизаторов
         host_res_sync = std::make_unique<net::HostResourceSynchronizer>();
-
         host_scene_sync = std::make_unique<net::HostSceneSynchronizer>();
 
-        // Синхронизируем ресурсы сразу после подключения
         host_res_sync->sync_repository(res.texturesRepo);
 
     } catch (const std::exception& e) {
@@ -295,20 +334,17 @@ GameState run_host() {
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
 
-        // 1. Game Logic
-        controller.update(dt, get_input());
-        scene.update(dt);
+        for (auto& entity : entities) {
+            entity->update(dt);
+        }
 
-        // 2. Network: Send Updates
+        controller.update(get_input());
+
         if (has_client_connected) {
             tick_count++;
-            // Пример: отправка состояния сцены
-            // host_scene_sync->update(scene, tick_count);
-            // Примечание: реализация update зависит от твоего HostSceneSynchronizer
+            host_scene_sync->update(scene, tick_count);
         }
-        host_scene_sync->update(scene, tick_count);
 
-        // 3. Render
         glfwPollEvents();
         Renderer::renderAll(0);
         glfwSwapBuffers(window);
@@ -341,8 +377,6 @@ GameState run_client() {
         );
 
         client_scene_sync = std::make_unique<net::ClientSceneSynchronizer>(scene, res, *global_repo);
-
-        // Загрузка маппинга ресурсов
         client_res_sync->load_resources_mapping();
 
     } catch (const std::exception& e) {
@@ -353,52 +387,36 @@ GameState run_client() {
     double last_time = glfwGetTime();
     bool running = true;
 
-    auto sync_thread = std::thread([&]()
-    {
+    auto sync_thread = std::thread([&]() {
         while (running) {
             try {
                 client_scene_sync->read_all();
-            }
-            catch (const std::exception& e) {
+            } catch (const std::exception& e) {
                 std::cerr << "Network connection error: " << e.what() << "\n";
-                return GameState::Menu;
+                break;
             }
         }
     });
-
-    // sync_thread.detach();
 
     while (!glfwWindowShouldClose(window)) {
         double current_time = glfwGetTime();
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
 
-        // 1. Network: Receive & Process
-        // Здесь должен быть код приема данных.
-        // Так как TCP - поток, нужно читать заголовки и диспетчеризировать.
-        // Если твои синхронизаторы имеют метод process_network_input(), вызывай его здесь.
-        // Например:
-        // client_res_sync->process_pending_packets();
-        // client_scene_sync->process_pending_packets();
-
-        // Временная заглушка, если методы еще не готовы:
-        // try {
-        //    auto pkt = net::receive_typed<SomePacket>(10); // Блокирующий вызов с таймаутом
-        // } catch (...) {}
-
-        // 2. Client Logic
-        // client_scene_sync->read_all();
+        // Клиент получает состояние из сети, но локальный update все же нужен для интерполяции или предсказания
         scene.update(dt);
 
-        // 3. Render
         glfwPollEvents();
         Renderer::renderAll(0);
         glfwSwapBuffers(window);
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            running = false;
+            sync_thread.join();
             return GameState::Menu;
         }
     }
+
     running = false;
     sync_thread.join();
 
@@ -407,7 +425,6 @@ GameState run_client() {
 
 // --- State: Scene Dispatcher ---
 GameState scene_state() {
-    // Reset network state
     has_client_connected = false;
     net::cleanup();
     host_res_sync.reset();
@@ -431,18 +448,17 @@ int run() {
     GameState current_state = GameState::Menu;
     while (current_state != GameState::Exit) {
         switch (current_state) {
-            case GameState::Menu:
-                current_state = menu_state();
-                break;
-            case GameState::Scene:
-                current_state = scene_state();
-                break;
-            default:
-                current_state = GameState::Exit;
-                break;
+        case GameState::Menu:
+            current_state = menu_state();
+            break;
+        case GameState::Scene:
+            current_state = scene_state();
+            break;
+        default:
+            current_state = GameState::Exit;
+            break;
         }
     }
-
     if (window) {
         glfwDestroyWindow(window);
         window = nullptr;
