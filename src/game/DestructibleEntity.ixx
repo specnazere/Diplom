@@ -6,44 +6,45 @@ module;
 #include <algorithm>
 
 #include "graphics/uv_rect.h"
+#include "voxel_object_actions.h"
 
+#include <cmath>
 #include <glm/glm.hpp>
 
+#include <utility>
 #include <vector>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <ostream>
+#include <glm/gtc/quaternion.hpp>
 
 export module destructible_entity;
 
 import destructible_object;
 import sprite_repository;
 import texture;
+import voxel_module;
 
 export
 struct EntityStats
 {
-    float force = 0.f;
+    glm::vec2 force {};
     float torque = 0.f;
 };
 
 export
-using ModuleFunc = std::function<void(EntityStats& state, float local_integrity, float global_integrity)>;
-
-export
-struct DestructibleModule
+namespace signals
 {
-    int priority = 0;
-    ModuleFunc func = nullptr;
-    // Список координат вокселей (col, row), которые относятся к этому модулю.
-    // Если список пуст, модуль считается "глобальным" и реагирует только на global_integrity.
-    std::vector<std::pair<int, int>> voxel_coords;
-
-    DestructibleModule() = default;
-
-    DestructibleModule(int prio, ModuleFunc f, std::vector<std::pair<int, int>> coords = {})
-        : priority(prio), func(std::move(f)), voxel_coords(std::move(coords)) {}
-};
+    using signal_t = uint32_t;
+    constexpr signal_t forwardSignal = 1u << forward;
+    constexpr signal_t backwardSignal = 1u << backward;
+    constexpr signal_t leftSignal = 1u << left;
+    constexpr signal_t rightSignal = 1u << right;
+    constexpr signal_t yawLeftSignal = 1u << yawLeft;
+    constexpr signal_t yawRightSignal = 1u << yawRight;
+    constexpr signal_t primaryWeaponSignal = 1u << primaryWeapon;
+}
 
 // Обертка над объектом и его логикой
 export
@@ -58,8 +59,9 @@ public:
 
 private:
     DestructibleObject object_;
-    std::vector<DestructibleModule> modules_;
+    std::vector<std::unique_ptr<VoxelModule>> modules_;
     size_t initial_alive_count_ = 0;
+    actions actions_;
 
     EntityStats stats_;
     ControlState control_signals_;
@@ -67,6 +69,8 @@ private:
 public:
     DestructibleObject& get_object() { return object_; }
     const DestructibleObject& get_object() const { return object_; }
+    signals::signal_t signal;
+    glm::vec2 target;
 
     // Конструктор принимает все необходимое для создания DestructibleObject
     DestructibleEntity(
@@ -84,33 +88,71 @@ public:
         recalculate_state();
     }
 
-    void add_module(int priority, ModuleFunc func, std::vector<std::pair<int, int>> coords = {})
+    void add_module(std::unique_ptr<VoxelModule>&& module)
     {
-        if (func) {
-            modules_.emplace_back(priority, std::move(func), std::move(coords));
-            // Сортируем по приоритету
-            std::sort(modules_.begin(), modules_.end(), [](const auto& a, const auto& b) {
-                return a.priority < b.priority;
-            });
-            recalculate_state();
-        }
+        modules_.push_back(std::move(module));
+        modules_.back()->apply_actions(actions_);
+        // Сортируем по приоритету
+        // std::sort(modules_.begin(), modules_.end(), [](const auto& a, const auto& b) {
+        //     return a.priority < b.priority;
+        // });
+        // recalculate_state();
+        // if (object) {
+        //     modules_.back().voxel_object->set_parent_transform(object_.get_local_transform());
+        // }
     }
 
     // --- Основной цикл ---
 
     // Обновление физики и состояния
     // dt - дельта времени
-    void update(float dt, bool debug = false)
+    void update(float dt)
     {
+        stats_ = {};
+
+        if (signal & signals::forwardSignal) {
+            for (auto& func : actions_.forward) {
+                stats_.force.x -= func({0.f, 0.f});
+            }
+        }
+        if (signal & signals::backwardSignal) {
+            for (auto& func : actions_.backward) {
+                stats_.force.x += func({0.f, 0.f});
+            }
+        }
+        if (signal & signals::leftSignal) {
+            for (auto& func : actions_.left) {
+                stats_.force.y -= func({0.f, 0.f});
+            }
+        }
+        if (signal & signals::rightSignal) {
+            for (auto& func : actions_.right) {
+                stats_.force.y += func({0.f, 0.f});
+            }
+        }
+        if (signal & signals::yawLeftSignal) {
+            for (auto& func : actions_.yawLeft) {
+                stats_.torque -= func({0.f, 0.f});
+            }
+        }
+        if (signal & signals::yawRightSignal) {
+            for (auto& func : actions_.yawRight) {
+                stats_.torque += func({0.f, 0.f});
+            }
+        }
+
+        for (auto& func : actions_.target) {
+            func(target);
+        }
+
         // 1. Применяем скорости к позиции (встроенная физика объекта)
-        object_.velocity += stats_.force / object_.get_mass() * dt * control_signals_.acceleration_signal;
-        object_.angular_velocity += stats_.torque / object_.get_inertia_moment() * dt * control_signals_.torque_signal;
+        glm::vec2 unrotated_acceleration = stats_.force / object_.get_mass() * dt;
+        double angle = object_.local_rotation();
+        object_.velocity.x += unrotated_acceleration.x * std::cos(angle) + unrotated_acceleration.y * std::sin(angle);
+        object_.velocity.y += unrotated_acceleration.y * std::cos(angle) + unrotated_acceleration.x * std::sin(angle);
+        object_.angular_velocity += stats_.torque / object_.get_inertia_moment() * dt;
 
         object_.update_position(dt);
-
-        if (debug) {
-            std::cout << control_signals_.acceleration_signal.x << " " << control_signals_.acceleration_signal.y << std::endl;
-        }
 
         // 2. Здесь можно добавить внешние силы, если они не являются модулями,
         //    или интеграцию с глобальным физическим движком.
@@ -157,35 +199,35 @@ private:
         stats_ = {};
 
         // 3. Применяем модули
-        for (const auto& mod : modules_)
-        {
-            if (!mod.func) continue;
-
-            float local_integrity = 1.0f;
-
-            // Если у модуля есть конкретные воксели, считаем их целостность
-            if (!mod.voxel_coords.empty())
-            {
-                int alive_in_module = 0;
-                int total_in_module = static_cast<int>(mod.voxel_coords.size());
-
-                for (const auto& [col, row] : mod.voxel_coords)
-                {
-                    const Voxel* v = object_.voxel_at(col, row);
-                    if (v && v->is_alive())
-                    {
-                        ++alive_in_module;
-                    }
-                }
-
-                local_integrity = (total_in_module > 0)
-                    ? static_cast<float>(alive_in_module) / static_cast<float>(total_in_module)
-                    : 0.f;
-            }
-
-            // Вызываем логику модуля
-            mod.func(stats_, local_integrity, global_integrity);
-        }
+        // for (const auto& mod : modules_)
+        // {
+        //     //if (!mod.func) continue;
+        //
+        //     float local_integrity = 1.0f;
+        //
+        //     // Если у модуля есть конкретные воксели, считаем их целостность
+        //     if (!mod.voxel_coords.empty())
+        //     {
+        //         int alive_in_module = 0;
+        //         int total_in_module = static_cast<int>(mod.voxel_coords.size());
+        //
+        //         for (const auto& [col, row] : mod.voxel_coords)
+        //         {
+        //             const Voxel* v = object_.voxel_at(col, row);
+        //             if (v && v->is_alive())
+        //             {
+        //                 ++alive_in_module;
+        //             }
+        //         }
+        //
+        //         local_integrity = (total_in_module > 0)
+        //             ? static_cast<float>(alive_in_module) / static_cast<float>(total_in_module)
+        //             : 0.f;
+        //     }
+        //
+        //     // Вызываем логику модуля
+        //     mod.func(stats_, local_integrity, global_integrity);
+        // }
     }
 
     size_t count_alive_voxels() const

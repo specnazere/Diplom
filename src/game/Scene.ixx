@@ -68,6 +68,15 @@ export struct CollisionResponse
 // ---------------------------------------------------------------------------
 export class Scene
 {
+private:
+    struct Slot
+    {
+        std::unique_ptr<DestructibleObject> obj;
+        uint32_t generation = 0;
+        bool occupied   = false;
+        bool has_physics = true;
+    };
+
 public:
     // Пользовательский коллбэк на столкновение.
     // Получает событие, возвращает желаемый отклик (урон).
@@ -86,7 +95,7 @@ public:
     // -----------------------------------------------------------------------
     //  Добавить объект в сцену. Возвращает хэндл для последующего доступа.
     // -----------------------------------------------------------------------
-    ObjectHandle add(std::unique_ptr<DestructibleObject> obj)
+    ObjectHandle add(std::unique_ptr<DestructibleObject> obj, bool has_physic = true)
     {
         assert(obj != nullptr);
 
@@ -96,8 +105,9 @@ public:
         {
             if (!slots_[i].occupied)
             {
-                slots_[i].obj      = std::move(obj);
+                slots_[i].obj = std::move(obj);
                 slots_[i].occupied = true;
+                slots_[i].has_physics = has_physic;
                 // generation уже инкрементирован при удалении
                 return { i, slots_[i].generation };
             }
@@ -105,7 +115,7 @@ public:
 
         // Нет свободных слотов — расширяем
         const uint32_t idx = static_cast<uint32_t>(slots_.size());
-        slots_.push_back({ std::move(obj), 0, true });
+        slots_.push_back({ std::move(obj), 0, true, has_physic});
         return { idx, 0 };
     }
 
@@ -196,13 +206,17 @@ public:
             DestructibleObject& a = *slots_[ia].obj;
             DestructibleObject& b = *slots_[ib].obj;
 
+            if (!(slots_[ib].has_physics && slots_[ia].has_physics))
+                continue;
+
             ContactPoint contact = a.find_contacts(b);
 
-            if (contact.normal == glm::vec2(0, 0)) continue;
+            if (contact.normal == glm::vec2(0, 0))
+                continue;
 
             // 1. Подготовка данных
             const float restitution = 0.6f; // Попробуй разные значения: 0.0, 0.5, 0.9
-            const float percent = -0.2f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
+            const float percent = -1.f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
             const float slop = 0.01f;       // Допуск проникновения (меньше этого значения не корректируем, чтобы избежать дрожания)
 
             const glm::vec2 posA = a.get_position();
@@ -362,16 +376,6 @@ public:
     }
 
 private:
-    // -----------------------------------------------------------------------
-    //  Слот хранения объекта
-    // -----------------------------------------------------------------------
-    struct Slot
-    {
-        std::unique_ptr<DestructibleObject> obj;
-        uint32_t generation = 0;
-        bool     occupied   = false;
-    };
-
     // -----------------------------------------------------------------------
     //  Сигнатура объекта — позиция и радиус описывающей окружности
     //  в мировом пространстве. Не зависит от угла поворота.

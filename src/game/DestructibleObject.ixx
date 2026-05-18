@@ -424,6 +424,13 @@ public:
     {
         repo_.getTransform(local_transform_).angle = angle;
     }
+    void set_global_rotation(const float& angle)
+    {
+        float global_angle = global_rotation();
+        global_angle = std::fmod(global_angle, std::numbers::pi_v<float> * 2);
+        add_rotation(angle - global_angle);
+    }
+
     float get_angle() const
     {
         return repo_.getTransform(local_transform_).angle;
@@ -667,6 +674,36 @@ public:
         add_position(velocity * dt);
     }
 
+    int get_local_transform() const
+    {
+        return local_transform_;
+    }
+
+    void set_parent_transform(int index)
+    {
+        repo_.getTransform(local_transform_).parentIndex = index;
+    }
+
+    int get_parent_transform()
+    {
+        return repo_.getTransform(local_transform_).parentIndex;
+    }
+
+    glm::vec2 global_position()
+    {
+        return repo_.getGlobalPosition(local_transform_);
+    }
+
+    float global_rotation()
+    {
+        return repo_.getGlobalRotation(local_transform_);
+    }
+
+    float local_rotation()
+    {
+        return repo_.getTransform(local_transform_).angle;
+    }
+
 private:
     // -----------------------------------------------------------------------
     //  Локальный чанк (блок вокселей в локальном пространстве объекта).
@@ -782,6 +819,7 @@ private:
                 sd.width      = cs;
                 sd.height     = cs;
                 sd.angle      = 0.f;
+                sd.depth      = params_.depth;
                 sd.position_x = vx.center.x;
                 sd.position_y = vx.center.y;
                 sd.paralax    = params_.paralax;

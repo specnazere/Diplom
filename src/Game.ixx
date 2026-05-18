@@ -31,12 +31,12 @@ import font;
 import atlas;
 import destruction;
 
-// Новые модули
 import destructible_entity;
 import destructible_object;
+import voxel_module;
 
 import scene;
-import player_controller;
+import player_object_controller;
 
 // Сетевые модули
 import native_tcp;
@@ -94,6 +94,7 @@ void init_systems() {
     res.loadLocaleFile("res/localiz/placeholders.csv");
     res.loadFontFile("res/fonts/trafaretkit.ttf", "basic");
     res.loadTextureFile("spaceship", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
+    res.loadTextureFile("turret", "res/textures/turret/color.png", "res/textures/turret/normal.png");
 
     std::set<char32_t> combined_charset;
     Locale& loc = res.localesRepo["russian"].object;
@@ -124,34 +125,60 @@ void init_systems() {
 std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& scene) {
     std::vector<std::unique_ptr<DestructibleEntity>> entities;
 
-    const auto& tex = res.texturesRepo["spaceship"].object;
-    const size_t texId = res.texturesRepo["spaceship"].iDesc;
-    const uv_rect uv = global_repo->atlas.get_uv(texId);
+    const auto& spaceship_texture = res.texturesRepo["spaceship"].object;
+    const size_t spaceship_texture_id = res.texturesRepo["spaceship"].iDesc;
+    const uv_rect spaceship_texture_uv = global_repo->atlas.get_uv(spaceship_texture_id);
+
+    const auto& turret_texture = res.texturesRepo["turret"].object;
+    const size_t turret_texture_id = res.texturesRepo["turret"].iDesc;
+    const uv_rect turret_texture_uv = global_repo->atlas.get_uv(turret_texture_id);
 
     // Создаем первый корабль
     auto ship1 = std::make_unique<DestructibleEntity>(
         *global_repo,
-        tex, texId, uv,
+        spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
         DestructibleObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, -200.f}} // Cell size 5, Origin y=-200
     );
 
     // 2. Двигатель (привязан к нижней части корабля)
     // Предположим, что двигатель занимает нижние 20% пикселей по высоте
     std::vector<std::pair<int, int>> engine_coords;
-    int h_start = static_cast<int>(tex.height * 0.8f);
-    for (int x = 0; x < tex.width; ++x) {
-        for (int y = h_start; y < tex.height; ++y) {
+    int h_start = static_cast<int>(spaceship_texture.height * 0.8f);
+    for (int x = 0; x < spaceship_texture.width; ++x) {
+        for (int y = h_start; y < spaceship_texture.height; ++y) {
             engine_coords.emplace_back(x, y);
         }
     }
 
-    ship1->add_module(10, [](EntityStats& stats, float local_integrity, float global_integrity) {
-        // Если двигатель цел более чем на 10%, он работает
-        if (local_integrity > 0.1f) {
-            stats.force += 150000.f;
-            stats.torque += 150000.f;
+    std::vector<std::pair<int, int>> turret_coords;
+    int turret_left = static_cast<int>(spaceship_texture.width * 0.5f) - 2;
+    int turret_up = static_cast<int>(spaceship_texture.height * 0.5f) - 2;
+    int turret_right = static_cast<int>(spaceship_texture.width * 0.5f) + 2;
+    int turret_down = static_cast<int>(spaceship_texture.height * 0.5f) + 2;
+
+    for (int x = turret_left; x < turret_right; ++x) {
+        for (int y = turret_up; y < turret_down; ++y) {
+            turret_coords.emplace_back(x, y);
         }
-    }, engine_coords);
+    }
+
+    auto turret = std::make_unique<DestructibleObject>(
+        *global_repo,
+        turret_texture, turret_texture_id, turret_texture_uv,
+        DestructibleObject::Params{5.f, 5.f, 0.1f, 1.f, {0.f, 0.f}});
+
+    ship1->add_module(std::make_unique<VoxelModuleUniversalEngine>(10, glm::vec2(0.f), 0.f, engine_coords, 300000.f, 30000000.f));
+
+    ship1->add_module(std::make_unique<VoxelModuleTurret>(
+        15,
+        glm::vec2(0.f),
+        0.f,
+        turret_coords,
+        *turret.get(),
+        10.f,
+        ship1->get_object().get_local_transform()
+        ));
+    scene.add(std::move(turret), false);
 
     scene.add(std::unique_ptr<DestructibleObject>(&ship1->get_object())); // Scene должен хранить unique_ptr<DestructibleEntity> или базовый класс
     // Примечание: Если Scene хранит только DestructibleObject*, нужно будет изменить Scene или хранить Entity отдельно.
@@ -161,14 +188,14 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
     entities.push_back(std::move(ship1));
 
     // Второй корабль (противник/статичный объект)
-    auto ship2 = std::make_unique<DestructibleEntity>(
-        *global_repo,
-        tex, texId, uv,
-        DestructibleObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
-    );
-
-    scene.add(std::unique_ptr<DestructibleObject>(&ship2->get_object()));
-    entities.push_back(std::move(ship2));
+    // auto ship2 = std::make_unique<DestructibleEntity>(
+    //     *global_repo,
+    //     spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
+    //     DestructibleObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
+    // );
+    //
+    // scene.add(std::unique_ptr<DestructibleObject>(&ship2->get_object()));
+    // entities.push_back(std::move(ship2));
 
     return entities;
 }
@@ -182,6 +209,15 @@ InputState get_input() {
     input.right = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
     input.rotate_left  = glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS;
     input.rotate_right = glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS;
+
+    double x, y;
+    glfwGetCursorPos(window, &x, &y);
+    int width, height;
+    glfwGetWindowSize(window, &width, &height);
+    x -= width / 2.f; y -= height / 2.f;
+    input.globalCursorPosition = glm::vec2(x, -y);
+
+
     return input;
 }
 
@@ -263,7 +299,7 @@ GameState run_singleplayer() {
     if (entities.empty()) return GameState::Menu;
 
     // PlayerController теперь должен работать с DestructibleObject&, который мы можем получить из Entity
-    PlayerController controller(*entities[0]);
+    PlayerObjectController controller(*entities[0]);
 
     double last_time = glfwGetTime();
 
@@ -282,8 +318,8 @@ GameState run_singleplayer() {
         Renderer::renderAll(0);
 
         // Отладочная отрисовка модулей (опционально)
-        entities[0]->update(dt, true);
-        entities[1]->update(dt);
+        entities[0]->update(dt);
+        //entities[1]->update(dt);
 
         glfwSwapBuffers(window);
 
@@ -301,7 +337,7 @@ GameState run_host() {
     auto entities = create_scene_entities(scene);
 
     if (entities.empty()) return GameState::Menu;
-    PlayerController controller(*entities[0]);
+    PlayerObjectController controller(*entities[0]);
 
     try {
         net::listen_start(PORT);

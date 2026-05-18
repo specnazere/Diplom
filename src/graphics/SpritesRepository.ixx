@@ -250,6 +250,34 @@ public:
         return sprite_data_[sprites_[index].dataIdx];
     }
 
+    float getGlobalRotation(size_t transform)
+    {
+        float rotation = 0;
+
+        while (transform != ~size_t{0}) {
+            auto& transform_ref = transforms_[transform];
+            rotation += transform_ref.angle;
+            transform = transform_ref.parentIndex;
+        }
+        return rotation;
+    }
+
+    glm::vec2 getGlobalPosition(size_t transform)
+    {
+        glm::vec2 position{};
+        glm::vec2 rotated_position{};
+
+        while (transform != ~size_t{0}) {
+            auto& transform_ref = transforms_[transform];
+            rotated_position.x = position.x * cosf(transform_ref.angle) + position.y * sinf(transform_ref.angle);
+            rotated_position.y = position.y * cosf(transform_ref.angle) + position.x * sinf(transform_ref.angle);
+            rotated_position += transform_ref.position;
+            position = rotated_position;
+            transform = transform_ref.parentIndex;
+        }
+        return position;
+    }
+
     Sprite& operator[](size_t index) { return sprites_[index]; }
 
     const Sprite& operator[](size_t index) const { return sprites_[index]; }
