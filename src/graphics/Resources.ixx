@@ -315,9 +315,9 @@ public:
             if (!rects[i].was_packed) continue;
 
             float u0 = (rects[i].x + textures[i].second->width) / (float)atlas_size;
-            float v0 = rects[i].y / (float)atlas_size;
+            float v0 = (rects[i].y + textures[i].second->height) / (float)atlas_size;
             float u1 = rects[i].x / (float)atlas_size;
-            float v1 = (rects[i].y + textures[i].second->height) / (float)atlas_size;
+            float v1 = rects[i].y / (float)atlas_size;
 
             atlas->add_mapping(textures[i].first, u0, v0, u1, v1);
         }
