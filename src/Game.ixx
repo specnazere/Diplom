@@ -18,6 +18,7 @@ module;
 #include <thread>
 #include <chrono>
 #include <cstring>
+#include <glm/ext/matrix_projection.hpp>
 
 #include "graphics/uv_rect.h"
 
@@ -34,6 +35,7 @@ import destruction;
 import destructible_entity;
 import destructible_object;
 import voxel_module;
+import projectile;
 
 import scene;
 import player_object_controller;
@@ -188,14 +190,22 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
     entities.push_back(std::move(ship1));
 
     // Второй корабль (противник/статичный объект)
-    // auto ship2 = std::make_unique<DestructibleEntity>(
-    //     *global_repo,
-    //     spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
-    //     DestructibleObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
-    // );
-    //
-    // scene.add(std::unique_ptr<DestructibleObject>(&ship2->get_object()));
-    // entities.push_back(std::move(ship2));
+    auto ship2 = std::make_unique<DestructibleEntity>(
+        *global_repo,
+        spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
+        DestructibleObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
+    );
+
+    scene.add(std::unique_ptr<DestructibleObject>(&ship2->get_object()));
+    entities.push_back(std::move(ship2));
+
+    projectile proj = projectile(
+        *global_repo,
+        spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
+        {0.f, 0.f}, {1.f, 1.f});
+
+    scene.spawnProjectile(proj);
+
 
     return entities;
 }
@@ -308,8 +318,6 @@ GameState run_singleplayer() {
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
 
-        scene.update(dt);
-
         // Управление игроком (изменяет velocity/angular_velocity внутри объекта)
         controller.update(get_input());
 
@@ -319,7 +327,9 @@ GameState run_singleplayer() {
 
         // Отладочная отрисовка модулей (опционально)
         entities[0]->update(dt);
-        //entities[1]->update(dt);
+        entities[1]->update(dt);
+
+        scene.update(dt);
 
         glfwSwapBuffers(window);
 
@@ -330,7 +340,7 @@ GameState run_singleplayer() {
     return GameState::Exit;
 }
 
-// --- State: Host Loop ---
+// --- State: Host Loop ---d
 GameState run_host() {
     const unsigned short PORT = 9090;
     Scene scene;

@@ -663,6 +663,53 @@ public:
         return final_contact;
     }
 
+    bool find_contact_with_point(const glm::vec2& world_point) const
+    {
+        // 2. Перевод точки в локальное пространство объекта (без поворота вокселей, только инверсия трансформации объекта)
+        glm::vec2 local_point = collision_math::world_to_local(world_point, get_position(), get_angle());
+
+        // 3. Прямой доступ к вокселю по индексу. Никаких чанков и переборов.
+        const float cs = params_.cell_size;
+        int col = static_cast<int>((local_point.x + cols_ * cs * 0.5f + orign_shift.x) / cs);
+        int row = static_cast<int>((local_point.y + rows_ * cs * 0.5f + orign_shift.y) / cs);
+
+        const Voxel* v = voxel_at(col, row);
+
+        // 4. Narrow phase: точка внутри AABB вокселя?
+        // Воксель — это квадрат. Если точка попала в индекс, она гарантированно внутри границ ячейки сетки.
+        // Остается только проверка "живости".
+        if (!v || !v->is_alive())
+            return false;
+
+        // 5. Формирование контакта
+        // Нормаль для точки условна. Берем вектор от центра вокселя к точке.
+        // Если точка строго в центре, берем дефолтную ось.
+        glm::vec2 voxel_center_world = collision_math::local_to_world(v->center, get_position(), get_angle());
+        glm::vec2 dir = world_point - voxel_center_world;
+        float len = glm::length(dir);
+
+        return true;
+    }
+
+    // Применяет мгновенный импульс в точке world_pos
+    // impulse — вектор импульса (кг*м/с)
+    void apply_impulse_at(const glm::vec2& impulse, const glm::vec2& world_pos) {
+        // 1. Изменение линейной скорости: v += J / m
+        velocity += impulse / mass_;
+
+        // 2. Изменение угловой скорости: w += (r x J) / I
+        glm::vec2 r = world_pos - get_position(); // плечо силы
+        float torque = r.x * impulse.y - r.y * impulse.x; // 2D cross product
+        angular_velocity += torque / inertia_moment_;
+    }
+
+    // Опционально: метод для "статического" удара (как ты просил для пуль)
+    // Просто меняет скорость, игнорируя массу другого тела (если нужно)
+    void apply_static_impulse(const glm::vec2& impulse) {
+        velocity += impulse / mass_;
+        // Угловую можно не менять, если удар в центр масс, или рассчитать отдельно
+    }
+
     // -----------------------------------------------------------------------
     //  Удобный метод: проверить коллизию и нанести урон в точках контакта.
     //  Возвращает true если коллизия произошла.

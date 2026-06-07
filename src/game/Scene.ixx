@@ -18,6 +18,7 @@ import destructible_object;
 import sprite_repository;
 import texture;
 import atlas;
+import projectile;
 
 // ---------------------------------------------------------------------------
 //  ObjectHandle — идентификатор объекта в сцене.
@@ -68,6 +69,9 @@ export struct CollisionResponse
 // ---------------------------------------------------------------------------
 export class Scene
 {
+public:
+    using CollisionCallback = std::function<CollisionResponse(const CollisionEvent&)>;
+
 private:
     struct Slot
     {
@@ -77,11 +81,27 @@ private:
         bool has_physics = true;
     };
 
+    struct ProjectileSlot
+    {
+        std::unique_ptr<projectile> proj;
+
+    };
+
+    struct Signature
+    {
+        uint32_t  slot_idx;
+        glm::vec2 position;
+        float     radius;
+    };
+
+    std::vector<Slot>      slots_;
+    std::vector<ProjectileSlot> projectiles_;
+    std::vector<Signature> signatures_; // живёт один кадр, пересобирается в update()
+
+    CollisionCallback      on_collision_;
+    mutable std::mutex     mutex_;       // Added
+
 public:
-    // Пользовательский коллбэк на столкновение.
-    // Получает событие, возвращает желаемый отклик (урон).
-    // Если коллбэк не задан — столкновения только обнаруживаются, урон не наносится.
-    using CollisionCallback = std::function<CollisionResponse(const CollisionEvent&)>;
 
     explicit Scene(CollisionCallback on_collision = nullptr)
         : on_collision_(std::move(on_collision))
@@ -128,6 +148,11 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         free_slot(handle.index);
         return true;
+    }
+
+    void spawnProjectile(const projectile& prototype)
+    {
+        projectiles_.push_back({std::make_unique<projectile>(prototype)});
     }
 
     // -----------------------------------------------------------------------
@@ -201,8 +226,7 @@ public:
         std::vector<uint32_t> damaged_slots;
 
         // Narrow-phase
-        for (auto [ia, ib] : candidates)
-        {
+        for (auto [ia, ib] : candidates) {
             DestructibleObject& a = *slots_[ia].obj;
             DestructibleObject& b = *slots_[ib].obj;
 
@@ -210,13 +234,42 @@ public:
                 continue;
 
             ContactPoint contact = a.find_contacts(b);
+            if (contact.normal == glm::vec2(0, 0)) continue;
 
-            if (contact.normal == glm::vec2(0, 0))
-                continue;
+            // 1. Получаем реакцию от пользователя (урон, тип взаимодействия)
+            CollisionEvent event{ {ia, slots_[ia].generation}, {ib, slots_[ib].generation}, {contact} };
+            CollisionResponse response = on_collision_ ? on_collision_(event) : CollisionResponse{};
 
-            // 1. Подготовка данных
+            // 2. Наносим урон
+            if (response.damage_to_a > 0) a.apply_damage(contact.world_pos, response.damage_to_a, response.damage_radius);
+            if (response.damage_to_b > 0) b.apply_damage(contact.world_pos, response.damage_to_b, response.damage_radius);
+
+            // 3. Физика
+            // Если один из объектов "нефизический" (например, пуля, которая должна исчезнуть),
+            // мы можем обработать это особо.
+
+            // bool a_is_bullet = (a.type == ObjectType::Bullet); // Предположим, ты добавил enum
+            // bool b_is_bullet = (b.type == ObjectType::Bullet);
+
+            // if (a_is_bullet || b_is_bullet) {
+            //     // Специфичная логика для пуль
+            //     if (a_is_bullet) {
+            //         // Пуля А бьет Корабль Б
+            //         // Корабль получает импульс
+            //         glm::vec2 impulse = contact.normal * some_bullet_impulse_strength;
+            //         b.apply_impulse_at(impulse, contact.world_pos);
+            //         // Пуля помечается на удаление (или удаляется сразу, если allow_remove_in_update)
+            //         mark_for_removal(ia);
+            //     } else {
+            //         // Пуля Б бьет Корабль А
+            //         glm::vec2 impulse = -contact.normal * some_bullet_impulse_strength;
+            //         a.apply_impulse_at(impulse, contact.world_pos);
+            //         mark_for_removal(ib);
+            //     }
+            // } else {
+
             const float restitution = 0.6f; // Попробуй разные значения: 0.0, 0.5, 0.9
-            const float percent = -1.f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
+            const float percent = 1.f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
             const float slop = 0.01f;       // Допуск проникновения (меньше этого значения не корректируем, чтобы избежать дрожания)
 
             const glm::vec2 posA = a.get_position();
@@ -245,16 +298,6 @@ public:
             // Проекция относительной скорости на нормаль
             float velAlongNormal = glm::dot(vRel, n);
 
-            // Если тела разлетаются, не применяем импульс (но коррекция позиции может быть нужна!)
-            // Для чистоты эксперимента пока оставим выход, если разлетаются
-            // if (velAlongNormal > 0)
-            // {
-            //     // Опционально: можно сделать коррекцию позиции даже при разлете, если есть проникновение
-            //     // Но для начала оставим так
-            //     continue;
-            // }
-
-            // 3. Расчет импульса (J)
             const float raCrossN = rA.x * n.y - rA.y * n.x;
             const float rbCrossN = rB.x * n.y - rB.y * n.x;
 
@@ -268,51 +311,25 @@ public:
 
             const glm::vec2 impulse = n * j;
 
-            // 4. Применение импульса к скоростям
-            a.velocity += impulse * (1.0f / mA);
-            b.velocity -= impulse * (1.0f / mB);
+            // Применяем к обоим. Важно: импульс для B равен -impulse
+            a.apply_impulse_at(impulse, contact.world_pos);
+            b.apply_impulse_at(-impulse, contact.world_pos);
 
-            a.angular_velocity += (rA.x * impulse.y - rA.y * impulse.x) / IA;
-            b.angular_velocity -= (rB.x * impulse.y - rB.y * impulse.x) / IB;
-
-            // 5. Позиционная коррекция (ВАЖНО!)
-            // Рассчитываем глубину проникновения.
-            // В твоем случае, так как это воксели, точную глубину сложно взять из одной точки.
-            // Но мы можем оценить её через относительную скорость и dt, или просто сдвинуть на фиксированную величину,
-            // если известно, что они пересекаются.
-
-            // Упрощенный вариант: сдвигаем тела вдоль нормали, чтобы уменьшить перекрытие.
-            // Так как у нас нет явной глубины проникновения из find_contacts,
-            // используем эвристику: если был удар, значит было перекрытие.
-            // Стандартный подход в импульсной физике:
-            // correction = max(penetration - slop, 0) / (invMassA + invMassB) * percent
-
-            // Поскольку ты не передаешь глубину проникновения, давай оценим её грубо:
-            // Если мы здесь, значит воксели пересеклись.
-            // Для стабильности можно просто слегка раздвинуть объекты вдоль нормали.
-
-            // Вариант А: Если бы у тебя была глубина (penetration):
-            // float penetration = ...;
-            // float correction_mag = std::max(penetration - slop, 0.0f) / (invMassSum) * percent;
-
-            // Вариант Б (для твоего кода):
-            // Так как точная глубина неизвестна, но мы знаем, что контакт есть,
-            // можно использовать "баг-фикс" от дрожания:
-            // Если скорость после удара очень мала, а объекты все еще близко, их может "зажевать".
-
-            // Давай добавим простую коррекцию, основанную на том, что мы хотим убрать относительную скорость проникновения.
-            // Но лучше всего — передать глубину из find_contacts.
-
-            // Пока что, чтобы увидеть эффект, попробуй просто жестко раздвинуть на малую величину,
-            // если коэффициент упругости высокий, чтобы они не "залипали".
+            // Позиционная коррекция (чтобы не залипали)
 
             if (restitution > 0.1f) {
-                 const float correctionMag = 0.05f; // Подбери экспериментально (в единицах твоего мира)
-                 const glm::vec2 correction = n * correctionMag;
-                 a.add_position(correction * (1.0f / mA) / invMassSum * percent); // Распределение по массам
-                 b.add_position(-correction * (1.0f / mB) / invMassSum * percent);
+                const float correctionMag = 0.05f; // Подбери экспериментально (в единицах твоего мира)
+                const glm::vec2 correction = n * correctionMag;
+                a.add_position(correction * (1.0f / mA) / invMassSum * percent); // Распределение по массам
+                b.add_position(-correction * (1.0f / mB) / invMassSum * percent);
             }
+            // }
         }
+
+        for (ProjectileSlot& projSlot : projectiles_) {
+            projSlot.proj->update(dt);
+        }
+
 
         // Убираем дубликаты в damaged_slots
         std::sort(damaged_slots.begin(), damaged_slots.end());
@@ -384,17 +401,6 @@ private:
     //  Радиус пересчитывается только если объект получил урон (дорогая
     //  операция не нужна каждый кадр — он зависит только от размера сетки).
     // -----------------------------------------------------------------------
-    struct Signature
-    {
-        uint32_t  slot_idx;
-        glm::vec2 position;
-        float     radius;
-    };
-
-    std::vector<Slot>      slots_;
-    std::vector<Signature> signatures_; // живёт один кадр, пересобирается в update()
-    CollisionCallback      on_collision_;
-    mutable std::mutex     mutex_;       // Added
 
     // -----------------------------------------------------------------------
     //  Пересобрать сигнатуры для всех живых объектов

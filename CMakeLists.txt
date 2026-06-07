@@ -67,6 +67,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/game/PlayerObjectController.ixx
         src/game/DestructibleEntity.ixx
         src/game/VoxelModule.ixx
+        src/game/Projectile.ixx
 
         src/netcode/protocols/Scene_sync_protocol.ixx
         src/netcode/protocols/Resource_sync_protocol.ixx
