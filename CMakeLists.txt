@@ -1,39 +1,57 @@
-cmake_minimum_required(VERSION 3.28) # Минимальная версия для хорошей поддержки модулей
+cmake_minimum_required(VERSION 3.28)
 project(Diplom LANGUAGES C CXX)
 
-# Стандарт C++23 (как у вас было), модули работают и в 20, и в 23
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-
-# Включаем автоматическое сканирование зависимостей модулей
-# Это критически важно, чтобы CMake понял порядок компиляции .ixx файлов
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
-# Найти зависимости
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
 find_package(OpenGL REQUIRED)
 
-# --- GLAD (остается обычной статической библиотекой, так как это C код) ---
 add_library(glad STATIC)
 set_target_properties(glad PROPERTIES LINKER_LANGUAGE C)
 target_sources(glad PRIVATE thirdparty/glad/src/glad.c)
 target_include_directories(glad PUBLIC thirdparty/glad/include)
 target_link_libraries(glad PUBLIC glfw)
 
-# --- Список исходных файлов модулей ---
-# Мы убираем все .h файлы.
-# Предполагается, что вы переименовали файлы реализации в .ixx (рекомендуется)
-# или оставили .cpp, но внутри них написали 'export module ...'.
-# Ниже приведен список с расширением .ixx для явного указания модулей.
-# Если вы оставили .cpp, просто замените .ixx на .cpp в этом списке.
-
-# Основное приложение
 add_executable(${PROJECT_NAME} src/main.cpp)
 
-# 1. Обычные источники (main.cpp, старые .cpp библиотеки)
-# Они не являются модулями, поэтому добавляются как обычные источники
+# --- Чтение .defines ---
+set(DEFINES_FILE "${CMAKE_SOURCE_DIR}/.defines")
+
+if(EXISTS ${DEFINES_FILE})
+    file(STRINGS ${DEFINES_FILE} DEFINES_LIST)
+    set(COMPILED_DEFINES "")
+
+    foreach(DEFINE IN LISTS DEFINES_LIST)
+        # Убираем пробелы по краям
+        string(STRIP "${DEFINE}" STRIPPED_DEFINE)
+
+        # Пропускаем пустые строки и комментарии
+        if(NOT STRIPPED_DEFINE STREQUAL "" AND NOT STRIPPED_DEFINE MATCHES "^#")
+            # Берем только первое слово (разделитель - пробел)
+            string(REGEX MATCH "^[^ ]+" FIRST_WORD "${STRIPPED_DEFINE}")
+
+            if(FIRST_WORD)
+                list(APPEND COMPILED_DEFINES ${FIRST_WORD})
+            endif()
+        endif()
+    endforeach()
+
+    if(COMPILED_DEFINES)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE ${COMPILED_DEFINES})
+    endif()
+
+    # Заставляет CMake перечитывать конфигурацию при изменении файла
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DEFINES_FILE})
+
+    message(STATUS "Loaded definitions from .defines file: ${COMPILED_DEFINES}")
+else()
+    message(STATUS "No .defines file found, skipping custom definitions")
+endif()
+
 target_sources(${PROJECT_NAME} PRIVATE
         thirdparty/stb/stb_realisations.cpp
         thirdparty/tinyxml2/tinyxml2.cpp
@@ -45,8 +63,6 @@ target_sources(${PROJECT_NAME} PRIVATE
         thirdparty/imgui/imgui_impl_glfw.cpp
 )
 
-# 2. Источники модулей (C++20 Modules)
-# Ключевой момент: используем FILE_SET CXX_MODULES
 target_sources(${PROJECT_NAME} PRIVATE
         FILE_SET CXX_MODULES TYPE CXX_MODULES FILES
         src/graphics/Renderer.ixx
@@ -68,6 +84,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/game/DestructibleEntity.ixx
         src/game/VoxelModule.ixx
         src/game/Projectile.ixx
+        src/game/RecursiveHitbox.ixx
 
         src/netcode/protocols/Scene_sync_protocol.ixx
         src/netcode/protocols/Resource_sync_protocol.ixx
@@ -83,13 +100,11 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/Game.ixx
 )
 
-# Подключение директорий
 target_include_directories(${PROJECT_NAME} PRIVATE
         src
         thirdparty
 )
 
-# Линковка
 target_link_libraries(${PROJECT_NAME} PRIVATE
         ws2_32
         glad
@@ -99,8 +114,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE _GLIBCXX_STDLIB_H=1)
 
-# --- ИСПРАВЛЕНИЕ: Отключаем сканирование модулей для сторонних .cpp файлов ---
-# GCC пытается парсить их как модули и падает на внутренних инклюдах
 set_source_files_properties(
         thirdparty/imgui/imgui.cpp
         thirdparty/imgui/imgui_draw.cpp
@@ -115,7 +128,6 @@ set_source_files_properties(
         COMPILE_OPTIONS "-include;cstdlib"
 )
 
-# --- Ресурсы (логика копирования сохранена и немного улучшена) ---
 set(RES_SOURCE_DIR "${CMAKE_SOURCE_DIR}/res")
 set(RES_TARGET_DIR "$<TARGET_FILE_DIR:${PROJECT_NAME}>/res")
 
@@ -135,12 +147,8 @@ add_custom_command(
 add_custom_target(copy_resources ALL DEPENDS "${RES_MARKER}")
 add_dependencies(${PROJECT_NAME} copy_resources)
 
-# --- Дополнительные настройки для конкретных компиляторов ---
 if(MSVC)
     set_source_files_properties(${MODULE_SOURCES} PROPERTIES LANGUAGE CXX)
     target_compile_options(${PROJECT_NAME} PRIVATE /experimental:module)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    # УБРАЛ target_compile_options(${PROJECT_NAME} PRIVATE -fmodules-ts)
-    # CMAKE_CXX_SCAN_FOR_MODULES ON выше уже включает необходимую логику.
-    # Лишний флаг вызывает конфликты парсинга в non-module файлах.
 endif()
