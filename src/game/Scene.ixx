@@ -41,7 +41,7 @@ export struct CollisionEvent
 {
     ObjectHandle          a;
     ObjectHandle          b;
-    std::vector<ContactPoint> contacts; // точки контакта в мировых координатах
+    std::vector<glm::vec2> contacts; // точки контакта в мировых координатах
 };
 
 // ---------------------------------------------------------------------------
@@ -233,16 +233,18 @@ public:
             if (!(slots_[ib].has_physics && slots_[ia].has_physics))
                 continue;
 
-            ContactPoint contact = a.find_contacts(b);
-            if (contact.normal == glm::vec2(0, 0)) continue;
+            std::optional<glm::vec2> contact = a.find_contacts(b);
+            if (!contact.has_value()) continue;
+
+            glm::vec2& contact_point = contact.value();
 
             // 1. Получаем реакцию от пользователя (урон, тип взаимодействия)
-            CollisionEvent event{ {ia, slots_[ia].generation}, {ib, slots_[ib].generation}, {contact} };
+            CollisionEvent event{ {ia, slots_[ia].generation}, {ib, slots_[ib].generation}, {contact_point} };
             CollisionResponse response = on_collision_ ? on_collision_(event) : CollisionResponse{};
 
             // 2. Наносим урон
-            if (response.damage_to_a > 0) a.apply_damage(contact.world_pos, response.damage_to_a, response.damage_radius);
-            if (response.damage_to_b > 0) b.apply_damage(contact.world_pos, response.damage_to_b, response.damage_radius);
+            if (response.damage_to_a > 0) a.apply_damage(contact_point, response.damage_to_a, response.damage_radius);
+            if (response.damage_to_b > 0) b.apply_damage(contact_point, response.damage_to_b, response.damage_radius);
 
             // 3. Физика
             // Если один из объектов "нефизический" (например, пуля, которая должна исчезнуть),
@@ -269,7 +271,7 @@ public:
             // } else {
 
             const float restitution = 0.6f; // Попробуй разные значения: 0.0, 0.5, 0.9
-            const float percent = 1.f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
+            const float percent = -0.1f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
             const float slop = 0.01f;       // Допуск проникновения (меньше этого значения не корректируем, чтобы избежать дрожания)
 
             const glm::vec2 posA = a.get_position();
@@ -281,8 +283,8 @@ public:
             const float IB = b.get_inertia_moment();
 
             // Векторы от центров масс до точки контакта
-            const glm::vec2 rA = contact.world_pos - posA;
-            const glm::vec2 rB = contact.world_pos - posB;
+            const glm::vec2 rA = contact_point - posA;
+            const glm::vec2 rB = contact_point - posB;
 
             // 2. Расчет скоростей в точке контакта
             const glm::vec2 vA = a.velocity + glm::vec2(-a.angular_velocity * rA.y, a.angular_velocity * rA.x);
@@ -290,10 +292,7 @@ public:
 
             const glm::vec2 vRel = vA - vB;
 
-            glm::vec2 n = contact.normal;
-            float lenN = glm::length(n);
-            if (lenN < 1e-6f) continue;
-            n /= lenN;
+            glm::vec2 n = glm::normalize(vRel);
 
             // Проекция относительной скорости на нормаль
             float velAlongNormal = glm::dot(vRel, n);
@@ -312,16 +311,16 @@ public:
             const glm::vec2 impulse = n * j;
 
             // Применяем к обоим. Важно: импульс для B равен -impulse
-            a.apply_impulse_at(impulse, contact.world_pos);
-            b.apply_impulse_at(-impulse, contact.world_pos);
+            a.apply_impulse_at(impulse, contact_point);
+            b.apply_impulse_at(-impulse, contact_point);
 
             // Позиционная коррекция (чтобы не залипали)
 
             if (restitution > 0.1f) {
-                const float correctionMag = 0.05f; // Подбери экспериментально (в единицах твоего мира)
-                const glm::vec2 correction = n * correctionMag;
-                a.add_position(correction * (1.0f / mA) / invMassSum * percent); // Распределение по массам
-                b.add_position(-correction * (1.0f / mB) / invMassSum * percent);
+                const float correctionMag = 0.5f; // Подбери экспериментально (в единицах твоего мира)
+                const glm::vec2 correction = n * correctionMag * percent;
+                a.add_position(correction * (1.0f / mA) / invMassSum); // Распределение по массам
+                b.add_position(-correction * (1.0f / mB) / invMassSum);
             }
             // }
         }

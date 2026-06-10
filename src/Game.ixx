@@ -318,6 +318,12 @@ GameState run_singleplayer() {
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
 
+#ifdef DEBUG_COLLISION
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+#endif
+
         // Управление игроком (изменяет velocity/angular_velocity внутри объекта)
         controller.update(get_input());
 
@@ -330,6 +336,11 @@ GameState run_singleplayer() {
         entities[1]->update(dt);
 
         scene.update(dt);
+
+#ifdef DEBUG_COLLISION
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#endif
 
         glfwSwapBuffers(window);
 

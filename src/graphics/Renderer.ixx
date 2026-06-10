@@ -274,8 +274,8 @@ public:
     {
         glfwGetFramebufferSize(window, &window_width_, &window_height_);
 
-        const int buffer_width  = window_width_  + BUFFER_OVERSIZE;
-        const int buffer_height = window_height_ + BUFFER_OVERSIZE;
+        const int buffer_width  = window_width_ ;// + BUFFER_OVERSIZE;
+        const int buffer_height = window_height_;// + BUFFER_OVERSIZE;
 
         camera::set_frame_size(buffer_width, buffer_height);
 
@@ -317,6 +317,7 @@ public:
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(GL_TRUE);
 
+#ifndef DONT_RENDER_SPRITES
         repo_->atlas.bind(sprite_shader_);
 
         sprite_shader_->use();
@@ -359,6 +360,7 @@ public:
         glDrawArraysInstanced(GL_TRIANGLES, 0, 6,
                               static_cast<GLsizei>(repo_->getDataSize()));
         glBindVertexArray(0);
+#endif
     }
 
     static void prepareConsts()

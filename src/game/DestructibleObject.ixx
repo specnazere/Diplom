@@ -9,6 +9,7 @@ module;
 #include <queue>
 #include <limits>
 #include <cmath>
+#include <memory>
 
 export module destructible_object;
 
@@ -16,6 +17,7 @@ import sprite;
 import sprite_repository;
 import texture;
 import atlas;
+import recursive_hitbox;
 
 // ---------------------------------------------------------------------------
 //  Статусы вокселей
@@ -43,61 +45,6 @@ export struct Voxel
     [[nodiscard]] bool has_sprite() const { return spriteIdx != ~size_t{0}; }
 };
 
-// ---------------------------------------------------------------------------
-//  Точка контакта при коллизии двух объектов (мировые координаты)
-// ---------------------------------------------------------------------------
-export struct ContactPoint
-{
-    glm::vec2 world_pos;   // середина между двумя столкнувшимися вокселями
-    glm::vec2 normal;      // нормаль от B к A (единичный вектор)
-};
-
-// ---------------------------------------------------------------------------
-//  Вспомогательные функции преобразования координат
-// ---------------------------------------------------------------------------
-namespace collision_math
-{
-    // Поворот вектора на угол (радианы)
-    inline glm::vec2 rotate_vec(glm::vec2 v, float angle)
-    {
-        const float c = std::cos(angle);
-        const float s = std::sin(angle);
-        return { v.x * c - v.y * s,
-                 v.x * s + v.y * c };
-    }
-
-    // Локальное пространство объекта → мировое
-    inline glm::vec2 local_to_world(glm::vec2 local, glm::vec2 pos, float angle)
-    {
-        return pos + rotate_vec(local, angle);
-    }
-
-    // Мировое → локальное пространство объекта
-    inline glm::vec2 world_to_local(glm::vec2 world, glm::vec2 pos, float angle)
-    {
-        return rotate_vec(world - pos, -angle);
-    }
-
-    // Прямо из локального пространства A в локальное пространство B
-    inline glm::vec2 a_local_to_b_local(glm::vec2 p,
-                                         glm::vec2 posA, float angleA,
-                                         glm::vec2 posB, float angleB)
-    {
-        return world_to_local(local_to_world(p, posA, angleA), posB, angleB);
-    }
-}
-
-// ---------------------------------------------------------------------------
-//  DestructibleObject
-//
-//  Сетка вокселей 1:1 по пикселям sub-региона текстуры (local_UV).
-//  Непрозрачные пиксели (alpha > alpha_threshold) → активный воксель-спрайт.
-//
-//  После apply_damage можно вызвать split_if_disconnected() — метод
-//  проверяет 4-связность сетки и возвращает список отколовшихся фрагментов
-//  (каждый — новый DestructibleObject с теми же параметрами, но только
-//  со своим подмножеством вокселей; спрайты перемещаются, не пересоздаются).
-// ---------------------------------------------------------------------------
 export class DestructibleObject
 {
 public:
@@ -113,15 +60,16 @@ public:
 
 private:
     SpritesRepository& repo_;
-    const texture&     tex_;
-    Params             params_;
-    uv_rect            local_UV_;
-    size_t             local_transform_;
-    size_t             parent_texture_;
+    const texture& tex_;
+    Params params_;
+    uv_rect local_UV_;
+    size_t local_transform_;
+    size_t parent_texture_;
+    std::unique_ptr<RecursiveHitbox> hitbox_;
 
     float mass_ = 1;
     float inertia_moment_ = 1;
-    glm::vec2 orign_shift = {};
+    glm::vec2 orign_shift_ = {};
 
     std::vector<Voxel>   voxels_;
     std::vector<size_t>  boundary_;
@@ -165,7 +113,6 @@ public:
         } else {
             build_voxels(alpha_threshold);
             recalculate_physic();
-            build_local_chunks();
         }
     }
 
@@ -209,10 +156,10 @@ public:
         const float cs = params_.cell_size;
 
         // Перевод мировых координат в индексы сетки с учётом центрирования
-        int start_col = static_cast<int>((world_pos.x - radius - params_.origin.x + tex_.width  * cs * 0.5f) / cs);
-        int end_col   = static_cast<int>((world_pos.x + radius - params_.origin.x + tex_.width  * cs * 0.5f) / cs) + 1;
-        int start_row = static_cast<int>((world_pos.y - radius - params_.origin.y + tex_.height * cs * 0.5f) / cs);
-        int end_row   = static_cast<int>((world_pos.y + radius - params_.origin.y + tex_.height * cs * 0.5f) / cs) + 1;
+        int start_col = static_cast<int>((world_pos.x - radius - params_.origin.x + cols_  * cs * 0.5f) / cs);
+        int end_col   = static_cast<int>((world_pos.x + radius - params_.origin.x + cols_  * cs * 0.5f) / cs) + 1;
+        int start_row = static_cast<int>((world_pos.y - radius - params_.origin.y + rows_ * cs * 0.5f) / cs);
+        int end_row   = static_cast<int>((world_pos.y + radius - params_.origin.y + rows_ * cs * 0.5f) / cs) + 1;
 
         start_col = std::max(0, start_col);
         end_col   = std::min(cols_, end_col);
@@ -499,196 +446,12 @@ public:
     //  Возвращает список точек контакта в мировых координатах.
     //  Пустой вектор — коллизии нет.
     // -----------------------------------------------------------------------
-    ContactPoint find_contacts(DestructibleObject& other)
+    std::optional<glm::vec2> find_contacts(DestructibleObject& other)
     {
-        std::vector<ContactPoint> contacts;
-        ContactPoint final_contact;
-        final_contact.normal = glm::vec2(0.0f);
-        final_contact.world_pos = glm::vec2(0.0f);
-
-        // Уровень 1 — описывающие окружности
-        if (!bounding_circles_overlap(other))
-            return final_contact;
-
-        const glm::vec2 posA  = get_position();
-        const glm::vec2 posB  = other.get_position();
-        const float     angA  = get_angle();
-        const float     angB  = other.get_angle();
-        const float     cs    = params_.cell_size;
-        // Два вокселя-квадрата со стороной cs перекрываются,
-        // если расстояние между центрами меньше cs (вписанная окружность r = cs/2)
-        const float touch_dist2 = cs * cs;
-
-        auto squares_intersect = [](glm::vec2 center_a_local_b, float angle_a_rel_b,
-                                glm::vec2 center_b, float half_size) -> bool
-        {
-            // center_b - центр вокселя B в локальной системе B (он же мировой для B, если бы не поворот, но мы в локальной)
-            // В локальной системе B воксель B - это AABB [-hs, hs] вокруг center_b
-            // Воксель A - это OBB вокруг center_a_local_b с углом angle_a_rel_b
-
-            float hs = half_size; // cs / 2.0f
-            glm::vec2 d = center_a_local_b - center_b;
-
-            float cos_a = std::cos(angle_a_rel_b);
-            float sin_a = std::sin(angle_a_rel_b);
-
-            // SAT оси: оси вокселя A (так как он OBB) и оси вокселя B (так как он AABB)
-
-            // 1. Ось X вокселя B (1, 0)
-            // Проекция d на (1,0) = abs(d.x)
-            // Проекция B на (1,0) = hs
-            // Проекция A на (1,0) = hs * (|cos_a| + |sin_a|)
-            if (std::abs(d.x) > hs + hs * (std::abs(cos_a) + std::abs(sin_a))) return false;
-
-            // 2. Ось Y вокселя B (0, 1)
-            // Проекция d на (0,1) = abs(d.y)
-            // Проекция B на (0,1) = hs
-            // Проекция A на (0,1) = hs * (|sin_a| + |cos_a|)
-            if (std::abs(d.y) > hs + hs * (std::abs(sin_a) + std::abs(cos_a))) return false;
-
-            // 3. Ось X вокселя A (cos_a, sin_a)
-            float proj_d = std::abs(d.x * cos_a + d.y * sin_a);
-            // Проекция B на эту ось: hs * (|cos_a| + |sin_a|)
-            // Проекция A на эту ось: hs
-            if (proj_d > hs + hs * (std::abs(cos_a) + std::abs(sin_a))) return false;
-
-            // 4. Ось Y вокселя A (-sin_a, cos_a)
-            float proj_d2 = std::abs(d.x * (-sin_a) + d.y * cos_a);
-            // Проекция B на эту ось: hs * (|-sin_a| + |cos_a|) = hs * (|sin_a| + |cos_a|)
-            // Проекция A на эту ось: hs
-            if (proj_d2 > hs + hs * (std::abs(sin_a) + std::abs(cos_a))) return false;
-
-            return true;
-        };
-
-        // Уровень 2 — перебираем пары чанков (в локальных пространствах)
-        for (const LocalChunk& ca : local_chunks_)
-        {
-            // Центр чанка A переводим в локальное пространство B
-            const glm::vec2 ca_center_B = collision_math::a_local_to_b_local(
-                ca.local_center, posA, angA, posB, angB);
-
-            for (const LocalChunk& cb : other.local_chunks_)
-            {
-                // Проверяем описывающие окружности чанков
-                const glm::vec2 dc = ca_center_B - cb.local_center;
-                const float dc2    = dc.x * dc.x + dc.y * dc.y;
-                const float rsum   = ca.bounding_radius + cb.bounding_radius;
-
-                if (dc2 > rsum * rsum) continue;
-
-                // Уровень 3 — воксели внутри пересекающихся чанков
-                for (int ra = ca.row_start; ra < ca.row_end; ++ra)
-                {
-                    for (int ca_col = ca.col_start; ca_col < ca.col_end; ++ca_col)
-                    {
-                        const Voxel* va = voxel_at(ca_col, ra);
-                        if (!va || !va->is_alive()) continue;
-
-                        // Центр вокселя A → локальное пространство B
-                        const glm::vec2 va_in_B = collision_math::a_local_to_b_local(
-                            va->center, posA, angA, posB, angB);
-
-                        // Прямой поиск вокселя B по индексу (O(1))
-                        const int col_b = static_cast<int>(
-                            (va_in_B.x + other.cols_ * cs * 0.5f + other.orign_shift.x) / cs);
-                        const int row_b = static_cast<int>(
-                            (va_in_B.y + other.rows_ * cs * 0.5f + other.orign_shift.y) / cs);
-
-                        // Проверяем и соседние клетки B на случай погрешности поворота
-                        for (int dr = -1; dr <= 1; ++dr)
-                        {
-                            for (int dc_idx = -1; dc_idx <= 1; ++dc_idx)
-                            {
-                                const Voxel* vb = other.voxel_at(col_b + dc_idx, row_b + dr);
-                                if (!vb || !vb->is_alive()) continue;
-
-                                // Финальная проверка: пересечение квадратов
-                                const float rel_angle = angA - angB;
-                                const float half_cs = cs * 0.5f;
-
-                                // va_in_B уже вычислен выше как центр A в локальной системе B
-                                // vb->center - это центр B в локальной системе B
-
-                                if (squares_intersect(va_in_B, rel_angle, vb->center, half_cs))
-                                {
-
-                                    const glm::vec2 va_world =
-                                        collision_math::local_to_world(va->center, posA, angA);
-                                    const glm::vec2 vb_world =
-                                        collision_math::local_to_world(vb->center, posB, angB);
-
-                                    // 1. Вычисляем скорости точек контакта в мировом пространстве
-                                    // Линейная скорость + угловая скорость (перпендикулярный вектор радиуса)
-                                    // Для 2D: cross(omega, r) -> (-omega * r.y, omega * r.x)
-
-                                    glm::vec2 rA = va_world - posA;
-                                    glm::vec2 vA = velocity + glm::vec2(-angular_velocity * rA.y, angular_velocity * rA.x);
-
-                                    glm::vec2 rB = vb_world - posB;
-                                    glm::vec2 vB = other.velocity + glm::vec2(-other.angular_velocity * rB.y, other.angular_velocity * rB.x);
-
-                                    // 2. Относительная скорость A относительно B
-                                    glm::vec2 vRel = vA - vB;
-
-                                    // Нормаль: от B к A
-                                    const glm::vec2 ab = vRel;
-                                    const float ab_len = std::sqrt(ab.x * ab.x + ab.y * ab.y);
-                                    const glm::vec2 normal = (ab_len > 1e-6f)
-                                        ? ab
-                                        : glm::vec2{1.f, 0.f};
-
-                                    contacts.push_back({
-                                        (va_world + vb_world) * 0.5f,
-                                        normal
-                                    });
-
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!contacts.empty()) {
-            for (auto& contact : contacts) {
-                final_contact.normal += contact.normal;
-                final_contact.world_pos += contact.world_pos;
-            }
-            final_contact.world_pos /= contacts.size();
-            final_contact.normal /= contacts.size();
-        }
-
-        return final_contact;
-    }
-
-    bool find_contact_with_point(const glm::vec2& world_point) const
-    {
-        // 2. Перевод точки в локальное пространство объекта (без поворота вокселей, только инверсия трансформации объекта)
-        glm::vec2 local_point = collision_math::world_to_local(world_point, get_position(), get_angle());
-
-        // 3. Прямой доступ к вокселю по индексу. Никаких чанков и переборов.
-        const float cs = params_.cell_size;
-        int col = static_cast<int>((local_point.x + cols_ * cs * 0.5f + orign_shift.x) / cs);
-        int row = static_cast<int>((local_point.y + rows_ * cs * 0.5f + orign_shift.y) / cs);
-
-        const Voxel* v = voxel_at(col, row);
-
-        // 4. Narrow phase: точка внутри AABB вокселя?
-        // Воксель — это квадрат. Если точка попала в индекс, она гарантированно внутри границ ячейки сетки.
-        // Остается только проверка "живости".
-        if (!v || !v->is_alive())
-            return false;
-
-        // 5. Формирование контакта
-        // Нормаль для точки условна. Берем вектор от центра вокселя к точке.
-        // Если точка строго в центре, берем дефолтную ось.
-        glm::vec2 voxel_center_world = collision_math::local_to_world(v->center, get_position(), get_angle());
-        glm::vec2 dir = world_point - voxel_center_world;
-        float len = glm::length(dir);
-
-        return true;
+        return RecursiveHitbox::checkCollision(
+                RecursiveHitbox::CollisionCheckerInput(*hitbox_, get_position(), get_angle()),
+                RecursiveHitbox::CollisionCheckerInput(*other.hitbox_, other.get_position(), other.get_angle())
+            );
     }
 
     // Применяет мгновенный импульс в точке world_pos
@@ -751,92 +514,65 @@ public:
         return repo_.getTransform(local_transform_).angle;
     }
 
-private:
-    // -----------------------------------------------------------------------
-    //  Локальный чанк (блок вокселей в локальном пространстве объекта).
-    //  Хранит AABB и описывающую окружность — не зависит от поворота объекта.
-    // -----------------------------------------------------------------------
-    struct LocalChunk
+#ifdef DEBUG_COLLISION
+    void DebugDraw()
     {
-        glm::vec2 local_min;       // AABB в локальных координатах
-        glm::vec2 local_max;
-        glm::vec2 local_center;    // центр AABB
-        float     bounding_radius; // радиус описывающей окружности чанка
-
-        int col_start, row_start;
-        int col_end,   row_end;
-    };
-
-    static constexpr int CHUNK_SIZE = 10;
-    std::vector<LocalChunk> local_chunks_;
-
-    // -----------------------------------------------------------------------
-    //  Построить/перестроить локальные чанки.
-    //  Вызывается после build_voxels, apply_damage и split_if_disconnected.
-    // -----------------------------------------------------------------------
-    void build_local_chunks()
-    {
-        local_chunks_.clear();
-        const float cs = params_.cell_size;
-
-        for (int cr = 0; cr * CHUNK_SIZE < rows_; ++cr)
-        {
-            for (int cc = 0; cc * CHUNK_SIZE < cols_; ++cc)
-            {
-                LocalChunk chunk;
-                chunk.col_start = cc * CHUNK_SIZE;
-                chunk.row_start = cr * CHUNK_SIZE;
-                chunk.col_end   = std::min(chunk.col_start + CHUNK_SIZE, cols_);
-                chunk.row_end   = std::min(chunk.row_start + CHUNK_SIZE, rows_);
-
-                // AABB в локальных координатах (без позиции и угла объекта)
-                chunk.local_min = voxels_[chunk.col_start + chunk.row_start * cols_].center - cs * 0.5f;
-                chunk.local_max = voxels_[(chunk.col_end - 1) + (chunk.row_end - 1) * cols_].center + cs * 0.5f;
-                chunk.local_center  = (chunk.local_min + chunk.local_max) * 0.5f;
-
-#ifdef CHUNK_DEBUG
-                repo_.addSprite({
-                    chunk.local_max.x - chunk.local_min.x,
-                    chunk.local_max.y - chunk.local_min.y,
-                    0,
-                    chunk.local_center.x,
-                    chunk.local_center.y,
-                    1,
-                    -0.5,
-                    {0, 0, 1, 1},
-                    static_cast<unsigned int>(local_transform_)
-                }, -0.5, local_transform_);
+        hitbox_->debugDraw(get_position(), get_angle());
+    }
 #endif
 
-                const glm::vec2 half = (chunk.local_max - chunk.local_min) * 0.5f;
-                chunk.bounding_radius = std::sqrt(half.x * half.x + half.y * half.y);
-
-                // Пропускаем чанки без живых вокселей
-                bool has_active = false;
-                for (int r = chunk.row_start; r < chunk.row_end && !has_active; ++r)
-                    for (int c = chunk.col_start; c < chunk.col_end && !has_active; ++c)
-                        if (auto* vx = voxel_at(c, r); vx && vx->is_alive())
-                            has_active = true;
-
-                if (has_active)
-                    local_chunks_.push_back(chunk);
+private:
+    void build_local_chunks()
+    {
+        hitbox_ = std::make_unique<RecursiveHitbox>(
+        GridBoundary(0, 0, static_cast<size_t>(cols_), static_cast<size_t>(rows_)),
+        3,
+        glm::vec2(cols_ * params_.cell_size, rows_ * params_.cell_size),
+        -orign_shift_,
+        [this](const GridBoundary& boundary)
+            {
+                for (int x = boundary.x1; x < boundary.x2; x++) {
+                    for (int y = boundary.y1; y < boundary.y2; y++) {
+                        if (voxel_at(x, y)->is_alive()) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
             }
-        }
+        );
     }
 
-    // -----------------------------------------------------------------------
     void build_voxels(unsigned char alpha_threshold)
     {
-        cols_ = tex_.width;
-        rows_ = tex_.height;
+        int up = std::numeric_limits<int>::max();
+        int down = std::numeric_limits<int>::min();
+        int left = std::numeric_limits<int>::max();
+        int right = std::numeric_limits<int>::min();
+
+        for (int x = 0; x < tex_.width; x++) {
+            for (int y = 0; y < tex_.height; y++) {
+
+                const size_t pixel_idx = static_cast<size_t>(y * tex_.width + x);
+                if (tex_.colorData[pixel_idx * 4 + 3] <= alpha_threshold) continue;
+
+                up = std::min(up, y);
+                down = std::max(down, y);
+                left = std::min(left, x);
+                right = std::max(right, x);
+            }
+        }
+
+        cols_ = right - left + 1;
+        rows_ = down - up + 1;
 
         if (cols_ <= 0 || rows_ <= 0) return;
 
         voxels_.resize(static_cast<size_t>(cols_ * rows_));
 
         const float cs      = params_.cell_size;
-        const float pixel_u = (local_UV_.u1 - local_UV_.u0) / static_cast<float>(cols_);
-        const float pixel_v = (local_UV_.v1 - local_UV_.v0) / static_cast<float>(rows_);
+        const float pixel_u = (local_UV_.u1 - local_UV_.u0) / static_cast<float>(tex_.width);
+        const float pixel_v = (local_UV_.v1 - local_UV_.v0) / static_cast<float>(tex_.height);
         const size_t tex_desc = reinterpret_cast<size_t>(&tex_);
 
         for (int row = 0; row < rows_; ++row)
@@ -856,7 +592,7 @@ private:
                 // Проверяем альфа-канал (RGBA: 4 байта на пиксель, alpha = байт [3])
                 if (tex_.colorData != nullptr)
                 {
-                    const size_t pixel_idx = static_cast<size_t>(row * cols_ + col);
+                    const size_t pixel_idx = static_cast<size_t>((row + up) * tex_.width + (col + left));
                     if (tex_.colorData[pixel_idx * 4 + 3] <= alpha_threshold) continue;
                 }
 
@@ -870,8 +606,8 @@ private:
                 sd.position_x = vx.center.x;
                 sd.position_y = vx.center.y;
                 sd.paralax    = params_.paralax;
-                sd.uvRect.u0  = local_UV_.u0 + static_cast<float>(col) * pixel_u;
-                sd.uvRect.v0  = local_UV_.v0 + static_cast<float>(row) * pixel_v;
+                sd.uvRect.u0  = local_UV_.u0 + static_cast<float>(col + left) * pixel_u;
+                sd.uvRect.v0  = local_UV_.v0 + static_cast<float>(row + up) * pixel_v;
                 sd.uvRect.u1  = sd.uvRect.u0 + pixel_u;
                 sd.uvRect.v1  = sd.uvRect.v0 + pixel_v;
                 sd.transformIdx = local_transform_;
@@ -884,37 +620,37 @@ private:
 
     void recalculate_physic()
     {
-        orign_shift = {0.f, 0.f};
+        orign_shift_ = {0.f, 0.f};
         float alive_num = 0.f;
 
         for (auto& voxel : voxels_) {
             if (!voxel.is_alive()) continue;
-            orign_shift += voxel.center;
+            orign_shift_ += voxel.center;
             alive_num += 1.f;
         }
 
         if (alive_num < 1.f) return;
 
-        orign_shift /= alive_num;
+        orign_shift_ /= alive_num;
         mass_ = alive_num;
 
         // Сдвигаем локальные центры вокселей в систему центра масс
         for (auto& voxel : voxels_) {
-            voxel.center -= orign_shift;  // ← был += (неверный знак) и закомментировано
+            voxel.center -= orign_shift_;  // ← был += (неверный знак) и закомментировано
 
             if (voxel.is_alive()) {
                 auto* data_ptr = repo_.getDataPointer(voxel.spriteIdx);
-                data_ptr->position_x -= orign_shift.x;
-                data_ptr->position_y -= orign_shift.y;
+                data_ptr->position_x -= orign_shift_.x;
+                data_ptr->position_y -= orign_shift_.y;
             }
         }
 
         // Смещаем мировую позицию трансформа на ту же величину
-        params_.origin += orign_shift;
+        params_.origin += orign_shift_;
 
         // Момент инерции считается по уже обновлённым voxel.center
         inertia_moment_ = 0.f;
-        constexpr float self_inertia = 1.f / 12.f * 2.f; // cs=1 → cs²/6
+        constexpr float self_inertia = 1.f / 12.f * 2.f;
         for (auto& voxel : voxels_) {
             if (!voxel.is_alive()) continue;
             inertia_moment_ += glm::dot(voxel.center, voxel.center) + self_inertia;

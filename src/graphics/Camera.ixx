@@ -80,4 +80,29 @@ public:
         frame_height_ = height;
         reload_view();
     }
+
+    static const float& get_scale()
+    {
+        return scale_;
+    }
+
+    static const int& get_frame_width()
+    {
+        return frame_width_;
+    }
+
+    static const int& get_frame_height()
+    {
+        return frame_height_;
+    }
+
+    static glm::vec2 world_to_screen(const glm::vec2& world) {
+        float half_w = frame_width_ * 0.5f;
+        float half_h = frame_height_ * 0.5f;
+        float rel_x = (world.x - pos_x_) / scale_;
+        float rel_y = (world.y - pos_y_) / scale_;
+        float screen_x = rel_x + half_w;
+        float screen_y = -rel_y + half_h;
+        return {screen_x, screen_y};
+    };
 };
