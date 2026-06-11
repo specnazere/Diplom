@@ -16,7 +16,9 @@ target_sources(glad PRIVATE thirdparty/glad/src/glad.c)
 target_include_directories(glad PUBLIC thirdparty/glad/include)
 target_link_libraries(glad PUBLIC glfw)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp
+        src/game/DestructibleObject.ixx
+        src/game/explosion_data.h)
 
 # --- Чтение .defines ---
 set(DEFINES_FILE "${CMAKE_SOURCE_DIR}/.defines")
@@ -83,8 +85,12 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/game/PlayerObjectController.ixx
         src/game/DestructibleEntity.ixx
         src/game/VoxelModule.ixx
+        src/game/VoxelObject.ixx
         src/game/Projectile.ixx
         src/game/RecursiveHitbox.ixx
+        src/game/PhysicObject.ixx
+        src/game/SceneEvent.ixx
+        src/game/SceneObject.ixx
 
         src/netcode/protocols/Scene_sync_protocol.ixx
         src/netcode/protocols/Resource_sync_protocol.ixx

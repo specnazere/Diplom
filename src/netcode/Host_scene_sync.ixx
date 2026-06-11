@@ -16,8 +16,8 @@ export module host_scene_sync;
 
 import scene_sync_protocol;
 import scene;
-import destructible_object;
 import native_tcp;
+import scene_object;
 
 export namespace net {
 
@@ -51,7 +51,7 @@ export namespace net {
                 // Давай предположим, что last.generation хранит последнее известное поколение.
 
                 bool found = false;
-                scene.for_each([&](ObjectHandle handle, const DestructibleObject&) {
+                scene.for_each([&](ObjectHandle handle, const SceneObject&) {
                     if (handle.index == idx && handle.generation == last.generation) {
                         found = true;
                     }
@@ -76,7 +76,7 @@ export namespace net {
             }
 
             // 2. Проверка на создание и обновление (Spawn / Update)
-            scene.for_each([&](ObjectHandle handle, const DestructibleObject& obj) {
+            scene.for_each([&](ObjectHandle handle, const SceneObject& obj) {
                 if (packet.count >= sync::MAX_UPDATES_PER_PACKET) {
                     send_typed(packet);
                     packet.count = 0;
@@ -102,7 +102,7 @@ export namespace net {
 
                     // Пороги: 1см и 1 градус
                     if (dist_sq > 0.0001f || angle_diff > 0.017f ||
-                        glm::length(obj.velocity - last.velocity) > 0.01f) {
+                        glm::length(obj.get_velocity() - last.velocity) > 0.01f) {
                         has_changed = true;
                     }
                 }
@@ -113,8 +113,8 @@ export namespace net {
                     u.generation = handle.generation;
                     u.position = obj.get_position();
                     u.angle = obj.get_angle();
-                    u.velocity = obj.velocity; // Предположим, что velocity публичный или есть геттер
-                    u.angular_velocity = obj.angular_velocity;
+                    u.velocity = obj.get_velocity(); // Предположим, что velocity публичный или есть геттер
+                    u.angular_velocity = obj.get_angular_velocity();
 
                     if (is_new) {
                         u.op = sync::SceneOp::Spawn;

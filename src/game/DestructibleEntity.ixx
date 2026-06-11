@@ -21,7 +21,7 @@ module;
 
 export module destructible_entity;
 
-import destructible_object;
+import voxel_object;
 import sprite_repository;
 import texture;
 import voxel_module;
@@ -58,7 +58,7 @@ public:
     };
 
 private:
-    DestructibleObject object_;
+    std::unique_ptr<VoxelObject> object_;
     std::vector<std::unique_ptr<VoxelModule>> modules_;
     size_t initial_alive_count_ = 0;
     actions actions_;
@@ -67,8 +67,8 @@ private:
     ControlState control_signals_;
 
 public:
-    DestructibleObject& get_object() { return object_; }
-    const DestructibleObject& get_object() const { return object_; }
+    VoxelObject& get_object() { return *object_.get(); }
+    const VoxelObject& get_object() const { return *object_.get(); }
     signals::signal_t signal;
     glm::vec2 target;
 
@@ -78,12 +78,12 @@ public:
         const texture& tex,
         size_t texture_id,
         const uv_rect& local_uv,
-        DestructibleObject::Params params = {1.f, 1.f, 0.f, 1.f, {0.f, 0.f}},
+        VoxelObject::Params params = {1.f, 1.f, 0.f, 1.f, {0.f, 0.f}},
         bool chipped = false,
         unsigned char alpha_threshold = 0
     )
-        : object_(repo, tex, texture_id, local_uv, params, chipped, alpha_threshold)
     {
+        object_ = std::make_unique<VoxelObject>(repo, tex, texture_id, local_uv, params, chipped, alpha_threshold);
         initial_alive_count_ = count_alive_voxels();
         recalculate_state();
     }
@@ -146,36 +146,37 @@ public:
         }
 
         // 1. Применяем скорости к позиции (встроенная физика объекта)
-        glm::vec2 unrotated_acceleration = stats_.force / object_.get_mass() * dt;
-        double angle = object_.local_rotation();
-        object_.velocity.x += unrotated_acceleration.x * std::cos(angle) + unrotated_acceleration.y * std::sin(angle);
-        object_.velocity.y += unrotated_acceleration.y * std::cos(angle) + unrotated_acceleration.x * std::sin(angle);
-        object_.angular_velocity += stats_.torque / object_.get_inertia_moment() * dt;
+        glm::vec2 unrotated_acceleration = stats_.force / object_->get_mass() * dt;
+        double angle = object_->local_rotation();
+        object_->add_velocity({
+            unrotated_acceleration.x * std::cos(angle) + unrotated_acceleration.y * std::sin(angle),
+            unrotated_acceleration.y * std::cos(angle) + unrotated_acceleration.x * std::sin(angle)});
+        object_->add_angular_velocity(stats_.torque / object_->get_moment() * dt);
 
-        object_.update_position(dt);
+        object_->update(dt);
 
 #ifdef DEBUG_COLLISION
-        object_.DebugDraw();
+        object_->DebugDraw();
 #endif
     }
 
     // Нанесение урона с автоматическим обновлением модулей
-    bool apply_damage(const glm::vec2& world_pos, float damage, float radius = 0.f)
-    {
-        bool changed = object_.apply_damage(world_pos, damage, radius);
-
-        if (changed)
-        {
-            // Если структура изменилась, пересчитываем влияние модулей
-            recalculate_state();
-
-            // Опционально: проверка на раскол объекта
-            // auto fragments = object_.split_if_disconnected();
-            // if (!fragments.empty()) { ... обработка фрагментов ... }
-        }
-
-        return changed;
-    }
+    // bool apply_damage(const glm::vec2& world_pos, float damage, float radius = 0.f)
+    // {
+    //     bool changed = object_.apply_damage(world_pos, damage, radius);
+    //
+    //     if (changed)
+    //     {
+    //         // Если структура изменилась, пересчитываем влияние модулей
+    //         recalculate_state();
+    //
+    //         // Опционально: проверка на раскол объекта
+    //         // auto fragments = object_.split_if_disconnected();
+    //         // if (!fragments.empty()) { ... обработка фрагментов ... }
+    //     }
+    //
+    //     return changed;
+    // }
 
     void apply_acceleration_signal(const glm::vec2& acceleration_signal)
     {
@@ -233,7 +234,7 @@ private:
 
     size_t count_alive_voxels() const
     {
-        const auto& voxels = object_.voxels();
+        const auto& voxels = object_->voxels();
         size_t count = 0;
         for (const auto& v : voxels)
         {

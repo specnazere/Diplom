@@ -1,2 +1,2 @@
-DEBUG_COLLISION #включает отображение коробок коллизии
+DEBUG_COLLISION     #включает отображение коробок коллизии
 DONT_RENDER_SPRITES #отключает весь рендер кроме imgui

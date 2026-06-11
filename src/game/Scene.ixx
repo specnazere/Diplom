@@ -2,6 +2,8 @@ module;
 
 #include "glm/glm.hpp"
 
+#include "explosion_data.h"
+
 #include <vector>
 #include <memory>
 #include <functional>
@@ -10,21 +12,23 @@ module;
 #include <algorithm>
 #include <cassert>
 #include <utility>
-#include <mutex> // Added
+#include <mutex>
 
 export module scene;
 
-import destructible_object;
 import sprite_repository;
 import texture;
 import atlas;
 import projectile;
+import scene_object;
+import scene_event;
 
 // ---------------------------------------------------------------------------
 //  ObjectHandle — идентификатор объекта в сцене.
 //  Поколение (generation) защищает от обращения к удалённому слоту.
 // ---------------------------------------------------------------------------
-export struct ObjectHandle
+export
+struct ObjectHandle
 {
     uint32_t index      = ~uint32_t{0};
     uint32_t generation = 0;
@@ -33,49 +37,13 @@ export struct ObjectHandle
     bool operator==(const ObjectHandle&) const = default;
 };
 
-// ---------------------------------------------------------------------------
-//  CollisionEvent — информация о столкновении двух объектов.
-//  Передаётся в пользовательский коллбэк.
-// ---------------------------------------------------------------------------
-export struct CollisionEvent
+export
+class Scene
 {
-    ObjectHandle          a;
-    ObjectHandle          b;
-    std::vector<glm::vec2> contacts; // точки контакта в мировых координатах
-};
-
-// ---------------------------------------------------------------------------
-//  CollisionResponse — что сцена должна сделать после столкновения.
-//  Возвращается из пользовательского коллбэка.
-// ---------------------------------------------------------------------------
-export struct CollisionResponse
-{
-    float damage_to_a = 0.f;  // урон объекту A
-    float damage_to_b = 0.f;  // урон объекту B
-    float damage_radius = 0.f; // радиус применения урона
-};
-
-// ---------------------------------------------------------------------------
-//  Scene
-//
-//  Управляет набором DestructibleObject-ов.
-//  Каждый кадр:
-//    1. Собирает сигнатуры (позиция + радиус описывающей окружности).
-//    2. Broad-phase: проверяет все пары сигнатур — O(N²) с ранним выходом.
-//    3. Narrow-phase: вызывает find_contacts() только для пересекающихся пар.
-//    4. Для каждого столкновения вызывает пользовательский коллбэк,
-//       применяет возвращённый урон и собирает фрагменты.
-//    5. Добавляет фрагменты в сцену, удаляет полностью уничтоженные объекты.
-// ---------------------------------------------------------------------------
-export class Scene
-{
-public:
-    using CollisionCallback = std::function<CollisionResponse(const CollisionEvent&)>;
-
 private:
     struct Slot
     {
-        std::unique_ptr<DestructibleObject> obj;
+        std::unique_ptr<SceneObject> obj;
         uint32_t generation = 0;
         bool occupied   = false;
         bool has_physics = true;
@@ -94,18 +62,17 @@ private:
         float     radius;
     };
 
+    std::vector<std::unique_ptr<events::SceneEvent>> events;
+
     std::vector<Slot>      slots_;
     std::vector<ProjectileSlot> projectiles_;
     std::vector<Signature> signatures_; // живёт один кадр, пересобирается в update()
 
-    CollisionCallback      on_collision_;
     mutable std::mutex     mutex_;       // Added
 
 public:
 
-    explicit Scene(CollisionCallback on_collision = nullptr)
-        : on_collision_(std::move(on_collision))
-    {}
+    explicit Scene() {}
 
     Scene(const Scene&)            = delete;
     Scene& operator=(const Scene&) = delete;
@@ -115,7 +82,7 @@ public:
     // -----------------------------------------------------------------------
     //  Добавить объект в сцену. Возвращает хэндл для последующего доступа.
     // -----------------------------------------------------------------------
-    ObjectHandle add(std::unique_ptr<DestructibleObject> obj, bool has_physic = true)
+    ObjectHandle add(std::unique_ptr<SceneObject> obj, bool has_physic = true)
     {
         assert(obj != nullptr);
 
@@ -158,12 +125,12 @@ public:
     // -----------------------------------------------------------------------
     //  Получить указатель на объект (nullptr если хэндл устарел).
     // -----------------------------------------------------------------------
-    DestructibleObject* get(ObjectHandle handle)
+    SceneObject* get(ObjectHandle handle)
     {
         if (!is_alive(handle)) return nullptr;
         return slots_[handle.index].obj.get();
     }
-    const DestructibleObject* get(ObjectHandle handle) const
+    const SceneObject* get(ObjectHandle handle) const
     {
         if (!is_alive(handle)) return nullptr;
         return slots_[handle.index].obj.get();
@@ -177,14 +144,6 @@ public:
         return handle.index < slots_.size()
             && slots_[handle.index].occupied
             && slots_[handle.index].generation == handle.generation;
-    }
-
-    // -----------------------------------------------------------------------
-    //  Установить/убрать коллбэк столкновения
-    // -----------------------------------------------------------------------
-    void set_collision_callback(CollisionCallback cb)
-    {
-        on_collision_ = std::move(cb);
     }
 
     // -----------------------------------------------------------------------
@@ -216,59 +175,60 @@ public:
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
-        rebuild_signatures();
-
-        // Пары, прошедшие broad-phase
-        std::vector<std::pair<uint32_t, uint32_t>> candidates;
-        broad_phase(candidates);
-
         // Множество слотов, которые получили урон — им нужен split
         std::vector<uint32_t> damaged_slots;
 
         // Narrow-phase
-        for (auto [ia, ib] : candidates) {
-            DestructibleObject& a = *slots_[ia].obj;
-            DestructibleObject& b = *slots_[ib].obj;
+        resolveCollisions();
+
+        // for (ProjectileSlot& projSlot : projectiles_) {
+        //     projSlot.proj->update(dt);
+        // }
+
+
+        // Убираем дубликаты в damaged_slots
+        std::sort(damaged_slots.begin(), damaged_slots.end());
+        damaged_slots.erase(std::unique(damaged_slots.begin(), damaged_slots.end()),
+                            damaged_slots.end());
+
+        // Split + добавление фрагментов
+        std::vector<std::unique_ptr<SceneObject>> new_fragments;
+
+        // for (uint32_t idx : damaged_slots)
+        // {
+        //     if (!slots_[idx].occupied) continue;
+        //
+        //     auto frags = slots_[idx].obj->split_if_disconnected();
+        //     for (auto& frag : frags)
+        //         new_fragments.push_back(
+        //             std::make_unique<SceneObject>(std::move(frag)));
+        // }
+
+        // Добавить фрагменты (после remove, чтобы не трогать их сразу же)
+        for (auto& frag : new_fragments)
+            add(std::move(frag));
+
+        for (auto& slot : slots_) {
+            slot.obj->update(dt);
+        }
+
+        resolveEvents(events);
+    }
+
+    void resolveCollisions()
+    {
+        for (int32_t ia = 0, ib = 1; ia < static_cast<int32_t>(slots_.size()); ia++)
+        for (ib = ia + 1; ib < static_cast<int32_t>(slots_.size()); ib++) {
+            SceneObject& a = *slots_[ia].obj;
+            SceneObject& b = *slots_[ib].obj;
 
             if (!(slots_[ib].has_physics && slots_[ia].has_physics))
                 continue;
 
-            std::optional<glm::vec2> contact = a.find_contacts(b);
+            std::optional<glm::vec2> contact = a.find_contact(b);
             if (!contact.has_value()) continue;
 
             glm::vec2& contact_point = contact.value();
-
-            // 1. Получаем реакцию от пользователя (урон, тип взаимодействия)
-            CollisionEvent event{ {ia, slots_[ia].generation}, {ib, slots_[ib].generation}, {contact_point} };
-            CollisionResponse response = on_collision_ ? on_collision_(event) : CollisionResponse{};
-
-            // 2. Наносим урон
-            if (response.damage_to_a > 0) a.apply_damage(contact_point, response.damage_to_a, response.damage_radius);
-            if (response.damage_to_b > 0) b.apply_damage(contact_point, response.damage_to_b, response.damage_radius);
-
-            // 3. Физика
-            // Если один из объектов "нефизический" (например, пуля, которая должна исчезнуть),
-            // мы можем обработать это особо.
-
-            // bool a_is_bullet = (a.type == ObjectType::Bullet); // Предположим, ты добавил enum
-            // bool b_is_bullet = (b.type == ObjectType::Bullet);
-
-            // if (a_is_bullet || b_is_bullet) {
-            //     // Специфичная логика для пуль
-            //     if (a_is_bullet) {
-            //         // Пуля А бьет Корабль Б
-            //         // Корабль получает импульс
-            //         glm::vec2 impulse = contact.normal * some_bullet_impulse_strength;
-            //         b.apply_impulse_at(impulse, contact.world_pos);
-            //         // Пуля помечается на удаление (или удаляется сразу, если allow_remove_in_update)
-            //         mark_for_removal(ia);
-            //     } else {
-            //         // Пуля Б бьет Корабль А
-            //         glm::vec2 impulse = -contact.normal * some_bullet_impulse_strength;
-            //         a.apply_impulse_at(impulse, contact.world_pos);
-            //         mark_for_removal(ib);
-            //     }
-            // } else {
 
             const float restitution = 0.6f; // Попробуй разные значения: 0.0, 0.5, 0.9
             const float percent = -0.2f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
@@ -279,18 +239,20 @@ public:
 
             const float mA = a.get_mass();
             const float mB = b.get_mass();
-            const float IA = a.get_inertia_moment();
-            const float IB = b.get_inertia_moment();
+            const float IA = a.get_moment();
+            const float IB = b.get_moment();
 
             // Векторы от центров масс до точки контакта
             const glm::vec2 rA = contact_point - posA;
             const glm::vec2 rB = contact_point - posB;
 
             // 2. Расчет скоростей в точке контакта
-            const glm::vec2 vA = a.velocity + glm::vec2(-a.angular_velocity * rA.y, a.angular_velocity * rA.x);
-            const glm::vec2 vB = b.velocity + glm::vec2(-b.angular_velocity * rB.y, b.angular_velocity * rB.x);
+            const glm::vec2 vA = a.get_velocity() + glm::vec2(-a.get_angular_velocity() * rA.y, a.get_angular_velocity() * rA.x);
+            const glm::vec2 vB = b.get_velocity() + glm::vec2(-b.get_angular_velocity() * rB.y, b.get_angular_velocity() * rB.x);
 
             const glm::vec2 vRel = vA - vB;
+
+            if (glm::length(vRel) == 0) continue;
 
             glm::vec2 n = glm::normalize(vRel);
 
@@ -322,47 +284,37 @@ public:
                 a.add_position(correction * (1.0f / mA) / invMassSum); // Распределение по массам
                 b.add_position(-correction * (1.0f / mB) / invMassSum);
             }
+
+            events.emplace_back(std::move(a.on_collision()));
+            events.emplace_back(std::move(b.on_collision()));
             // }
         }
+    }
 
-        for (ProjectileSlot& projSlot : projectiles_) {
-            projSlot.proj->update(dt);
+    void resolveEvents(std::vector<std::unique_ptr<events::SceneEvent>>& eventsVector)
+    {
+        for (std::unique_ptr<events::SceneEvent>& event : eventsVector ) {
+            switch (event->type()) {
+                case events::emptyEvent: break;
+                case events::explosionEvent:
+                {
+                    auto* explosionEventPtr = static_cast<events::SpawnExplosion*>(event.get());
+                    for_each([explosionEventPtr](ObjectHandle handle, SceneObject& obj)
+                    {
+                        obj.area_damage(explosionEventPtr->explosion);
+                    });
+
+                    break;
+                }
+            }
         }
-
-
-        // Убираем дубликаты в damaged_slots
-        std::sort(damaged_slots.begin(), damaged_slots.end());
-        damaged_slots.erase(std::unique(damaged_slots.begin(), damaged_slots.end()),
-                            damaged_slots.end());
-
-        // Split + добавление фрагментов
-        std::vector<std::unique_ptr<DestructibleObject>> new_fragments;
-
-        for (uint32_t idx : damaged_slots)
-        {
-            if (!slots_[idx].occupied) continue;
-
-            auto frags = slots_[idx].obj->split_if_disconnected();
-            for (auto& frag : frags)
-                new_fragments.push_back(
-                    std::make_unique<DestructibleObject>(std::move(frag)));
-        }
-
-        // Удалить полностью уничтоженные объекты
-        remove_dead_objects();
-
-        // Добавить фрагменты (после remove, чтобы не трогать их сразу же)
-        for (auto& frag : new_fragments)
-            add(std::move(frag));
-
-        for (auto& slot : slots_) {
-            slot.obj->update_position(dt);
-        }
+        eventsVector.clear();
     }
 
     // -----------------------------------------------------------------------
     //  Итерация по всем живым объектам
     // -----------------------------------------------------------------------
+
     template<typename Fn>
     void for_each(Fn&& fn)
     {
@@ -392,83 +344,6 @@ public:
     }
 
 private:
-    // -----------------------------------------------------------------------
-    //  Сигнатура объекта — позиция и радиус описывающей окружности
-    //  в мировом пространстве. Не зависит от угла поворота.
-    //
-    //  Пересчитывается каждый кадр, потому что объект может двигаться.
-    //  Радиус пересчитывается только если объект получил урон (дорогая
-    //  операция не нужна каждый кадр — он зависит только от размера сетки).
-    // -----------------------------------------------------------------------
-
-    // -----------------------------------------------------------------------
-    //  Пересобрать сигнатуры для всех живых объектов
-    // -----------------------------------------------------------------------
-    void rebuild_signatures()
-    {
-        signatures_.clear();
-        for (uint32_t i = 0; i < static_cast<uint32_t>(slots_.size()); ++i)
-        {
-            if (!slots_[i].occupied) continue;
-            const DestructibleObject& obj = *slots_[i].obj;
-            signatures_.push_back({
-                i,
-                obj.get_position(),
-                obj.get_bounding_radius()
-            });
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    //  Broad-phase: проверяем все пары сигнатур.
-    //
-    //  Два объекта — кандидаты на коллизию, если суммарный радиус их
-    //  описывающих окружностей больше расстояния между центрами:
-    //
-    //      dist(A.position, B.position) < A.radius + B.radius
-    //
-    //  Проверка по квадрату расстояния — без sqrt.
-    // -----------------------------------------------------------------------
-    void broad_phase(std::vector<std::pair<uint32_t, uint32_t>>& out) const
-    {
-        const size_t n = signatures_.size();
-        for (size_t i = 0; i < n; ++i)
-        {
-            const Signature& sa = signatures_[i];
-
-            for (size_t j = i + 1; j < n; ++j)
-            {
-                const Signature& sb = signatures_[j];
-
-                const glm::vec2 d = sa.position - sb.position;
-                const float dist2 = d.x * d.x + d.y * d.y;
-                const float rsum  = sa.radius + sb.radius;
-
-                if (dist2 < rsum * rsum)
-                    out.push_back({ sa.slot_idx, sb.slot_idx });
-            }
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    //  Удалить объекты без живых вокселей
-    // -----------------------------------------------------------------------
-    void remove_dead_objects()
-    {
-        for (uint32_t i = 0; i < static_cast<uint32_t>(slots_.size()); ++i)
-        {
-            if (!slots_[i].occupied) continue;
-
-            const auto& voxels = slots_[i].obj->voxels();
-            const bool has_alive = std::any_of(
-                voxels.begin(), voxels.end(),
-                [](const Voxel& vx) { return vx.is_alive(); });
-
-            if (!has_alive)
-                free_slot(i);
-        }
-    }
-
     // -----------------------------------------------------------------------
     //  Освободить слот, инкрементировав поколение
     // -----------------------------------------------------------------------

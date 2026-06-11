@@ -2,7 +2,11 @@
 // Created by A on 17.04.2026.
 //
 module;
+
 #include "glm/glm.hpp"
+
+#include "transform_node.h"
+
 #include <vector>
 #include <queue>
 #include <cmath>

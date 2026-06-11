@@ -15,7 +15,7 @@ module;
 
 export module voxel_module;
 
-import destructible_object;
+import voxel_object;
 
 export
 class VoxelModule
@@ -110,7 +110,7 @@ export
 class VoxelModuleTurret : public VoxelModule
 {
 private:
-    DestructibleObject& turret_object_;
+    VoxelObject& turret_object_;
 public:
     const float turn_speed;
 
@@ -119,7 +119,7 @@ public:
         const glm::vec2& center,
         const float& critical_integrity,
         const std::vector<std::pair<int, int>>& coords,
-        DestructibleObject& object,
+        VoxelObject& object,
         const float& turn_speed,
         const int parent_transform)
         : VoxelModule(priority, center, critical_integrity, coords)
@@ -135,7 +135,7 @@ public:
         {
             glm::vec2 direction = turret_object_.global_position() - target;
             float angle = std::atan2(direction.y, direction.x);
-            turret_object_.set_global_rotation(angle);
+            turret_object_.set_global_angle(angle);
         });
     }
 };

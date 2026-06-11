@@ -33,7 +33,7 @@ import atlas;
 import destruction;
 
 import destructible_entity;
-import destructible_object;
+import voxel_object;
 import voxel_module;
 import projectile;
 
@@ -139,7 +139,7 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
     auto ship1 = std::make_unique<DestructibleEntity>(
         *global_repo,
         spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
-        DestructibleObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, -200.f}} // Cell size 5, Origin y=-200
+        VoxelObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, -200.f}} // Cell size 5, Origin y=-200
     );
 
     // 2. Двигатель (привязан к нижней части корабля)
@@ -164,10 +164,10 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
         }
     }
 
-    auto turret = std::make_unique<DestructibleObject>(
+    auto turret = std::make_unique<VoxelObject>(
         *global_repo,
         turret_texture, turret_texture_id, turret_texture_uv,
-        DestructibleObject::Params{5.f, 5.f, 0.1f, 1.f, {0.f, 0.f}});
+        VoxelObject::Params{5.f, 5.f, 0.1f, 1.f, {0.f, 0.f}});
 
     ship1->add_module(std::make_unique<VoxelModuleUniversalEngine>(10, glm::vec2(0.f), 0.f, engine_coords, 300000.f, 30000000.f));
 
@@ -182,7 +182,7 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
         ));
     scene.add(std::move(turret), false);
 
-    scene.add(std::unique_ptr<DestructibleObject>(&ship1->get_object())); // Scene должен хранить unique_ptr<DestructibleEntity> или базовый класс
+    scene.add(std::unique_ptr<VoxelObject>(&ship1->get_object())); // Scene должен хранить unique_ptr<DestructibleEntity> или базовый класс
     // Примечание: Если Scene хранит только DestructibleObject*, нужно будет изменить Scene или хранить Entity отдельно.
     // Для примера предположим, что мы храним Entity в отдельном списке или Scene адаптирован.
     // В текущей реализации Game мы будем хранить ссылки на Entity здесь, в векторе.
@@ -193,10 +193,10 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
     auto ship2 = std::make_unique<DestructibleEntity>(
         *global_repo,
         spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
-        DestructibleObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
+        VoxelObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
     );
 
-    scene.add(std::unique_ptr<DestructibleObject>(&ship2->get_object()));
+    scene.add(std::unique_ptr<VoxelObject>(&ship2->get_object()));
     entities.push_back(std::move(ship2));
 
     projectile proj = projectile(

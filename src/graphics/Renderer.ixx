@@ -11,6 +11,7 @@ module;
 #include "glm/gtc/type_ptr.hpp"
 
 #include "primitives.h"
+#include "transform_node.h"
 
 #include <cassert>
 #include <stdexcept>
