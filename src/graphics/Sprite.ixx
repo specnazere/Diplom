@@ -15,8 +15,7 @@ struct alignas(16) SpriteData {
 
     // Локальные параметры спрайта (применяются ПОСЛЕ глобальной трансформации)
     glm::float32 angle{};
-    glm::float32 position_x{};
-    glm::float32 position_y{};
+    glm::vec2 position{};
 
     glm::float32 paralax = 1.0f;
     glm::float32 depth = 0.0f;

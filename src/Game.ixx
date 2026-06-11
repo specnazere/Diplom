@@ -20,6 +20,9 @@ module;
 #include <cstring>
 #include <glm/ext/matrix_projection.hpp>
 
+#include "game/explosion_data.h"
+#include "game/physic_parameters.h"
+#include "game/voxel_object_params.h"
 #include "graphics/uv_rect.h"
 
 export module game;
@@ -49,6 +52,7 @@ import scene_sync_protocol;
 import host_scene_sync;
 import client_scene_sync;
 
+class SceneObject;
 export namespace game {
 
 GLFWwindow* window = nullptr;
@@ -139,7 +143,7 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
     auto ship1 = std::make_unique<DestructibleEntity>(
         *global_repo,
         spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
-        VoxelObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, -200.f}} // Cell size 5, Origin y=-200
+        voxel_object_params {5.f, 5.f, 0.f, 1.f, {0.f, -200.f}} // Cell size 5, Origin y=-200
     );
 
     // 2. Двигатель (привязан к нижней части корабля)
@@ -167,7 +171,7 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
     auto turret = std::make_unique<VoxelObject>(
         *global_repo,
         turret_texture, turret_texture_id, turret_texture_uv,
-        VoxelObject::Params{5.f, 5.f, 0.1f, 1.f, {0.f, 0.f}});
+        voxel_object_params {5.f, 5.f, 0.1f, 1.f, {0.f, 0.f}});
 
     ship1->add_module(std::make_unique<VoxelModuleUniversalEngine>(10, glm::vec2(0.f), 0.f, engine_coords, 300000.f, 30000000.f));
 
@@ -193,19 +197,26 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
     auto ship2 = std::make_unique<DestructibleEntity>(
         *global_repo,
         spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
-        VoxelObject::Params{5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
+        voxel_object_params {5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
     );
 
     scene.add(std::unique_ptr<VoxelObject>(&ship2->get_object()));
     entities.push_back(std::move(ship2));
 
-    projectile proj = projectile(
+    std::unique_ptr<Projectile> proj = std::make_unique<Projectile>(
         *global_repo,
-        spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
-        {0.f, 0.f}, {1.f, 1.f});
+        spaceship_texture,
+        spaceship_texture_id,
+        spaceship_texture_uv,
+        kinetic_parameters (10.f, 100.f),
+        glm::vec2(10.f, 10.f),
+        explosion_data(50.f, 100.f, 1000.f),
+        500.f,
+        glm::vec2(0.f, 0.f),
+        glm::vec2(1.f, 0.f)
+        );
 
-    scene.spawnProjectile(proj);
-
+    scene.add(std::move(proj));
 
     return entities;
 }

@@ -19,6 +19,8 @@ module;
 #include <ostream>
 #include <glm/gtc/quaternion.hpp>
 
+#include "voxel_object_params.h"
+
 export module destructible_entity;
 
 import voxel_object;
@@ -78,7 +80,7 @@ public:
         const texture& tex,
         size_t texture_id,
         const uv_rect& local_uv,
-        VoxelObject::Params params = {1.f, 1.f, 0.f, 1.f, {0.f, 0.f}},
+        voxel_object_params params = VoxelObject::standart_params,
         bool chipped = false,
         unsigned char alpha_threshold = 0
     )

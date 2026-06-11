@@ -4,6 +4,7 @@ module;
 
 #include "graphics/uv_rect.h"
 #include "explosion_data.h"
+#include "voxel_object_params.h"
 
 #include <vector>
 #include <algorithm>
@@ -21,7 +22,6 @@ import texture;
 import atlas;
 import recursive_hitbox;
 import scene_object;
-import scene_event;
 
 // ---------------------------------------------------------------------------
 //  Статусы вокселей
@@ -53,20 +53,12 @@ export
 class VoxelObject : public SceneObject
 {
 public:
-    struct Params
-    {
-        float cell_size  = 1.f;  // размер одной ячейки в мировых единицах
-        float default_hp = 1.f;
-        float depth      = 0.f;
-        float paralax    = 1.f;
-        // Мировая позиция центра объекта (сетка симметрична вокруг этой точки)
-        glm::vec2 origin = {0.f, 0.f};
-    };
+    static constexpr voxel_object_params standart_params = voxel_object_params(5.f, 1.f, 0.f, 1.f, {0.f, 0.f});
 
 private:
     SpritesRepository& repo_;
     const texture& tex_;
-    Params params_;
+    voxel_object_params params_;
     uv_rect local_UV_;
     size_t local_transform_;
     size_t parent_texture_;
@@ -97,11 +89,12 @@ public:
     // -----------------------------------------------------------------------
     VoxelObject(
         SpritesRepository& repository,
-        const texture&     tex, const size_t texture_id,
+        const texture&     tex,
+        const size_t texture_id,
         const uv_rect&     local_UV,
-        Params             params          = {1, 1, 0, 1, {0, 0}},
+        const voxel_object_params& params = standart_params,
         bool chipped = false,
-        unsigned char      alpha_threshold = 0)
+        unsigned char alpha_threshold = 0)
         : repo_(repository)
         , tex_(tex)
         , params_(params)
@@ -155,19 +148,31 @@ public:
     //  Возвращает true если хотя бы один воксель уничтожен.
     //  После изменений пересчитывает чанки.
     // -----------------------------------------------------------------------
-    void area_damage(const explosion_data& explosion) override
+    void area_damage(const explosion_data& explosion, const glm::vec2& position) override
     {
         bool changed = false;
-        const float cs = params_.cell_size;
 
-        const glm::vec2& world_pos = explosion.position;
+        const float& cs = params_.cell_size;
         const float& radius = explosion.radius;
+        const float& grid_angle = global_rotation();
+
+        float cos_value = cos(grid_angle);
+        float sin_value = sin(grid_angle);
+        glm::vec2 grid_center = global_position() - glm::vec2(
+            params_.origin.x * cos_value - params_.origin.y * sin_value,
+            params_.origin.x * sin_value + params_.origin.y * cos_value);
+
+        glm::vec2 diff = position - grid_center;
+
+        glm::vec2 local_position = glm::vec2(
+            diff.x * cos_value - diff.y * sin_value,
+            diff.x * sin_value + diff.y * cos_value);
 
         // Перевод мировых координат в индексы сетки с учётом центрирования
-        int start_col = static_cast<int>((world_pos.x - radius - params_.origin.x + cols_  * cs * 0.5f) / cs);
-        int end_col   = static_cast<int>((world_pos.x + radius - params_.origin.x + cols_  * cs * 0.5f) / cs) + 1;
-        int start_row = static_cast<int>((world_pos.y - radius - params_.origin.y + rows_ * cs * 0.5f) / cs);
-        int end_row   = static_cast<int>((world_pos.y + radius - params_.origin.y + rows_ * cs * 0.5f) / cs) + 1;
+        int start_col = static_cast<int>((local_position.x - radius + (cols_ * cs) * 0.5f) / cs);
+        int end_col   = static_cast<int>((local_position.x + radius + (cols_ * cs) * 0.5f) / cs) + 1;
+        int start_row = static_cast<int>((local_position.y - radius + (rows_ * cs) * 0.5f) / cs);
+        int end_row   = static_cast<int>((local_position.y + radius + (rows_ * cs) * 0.5f) / cs) + 1;
 
         start_col = std::max(0, start_col);
         end_col   = std::min(cols_, end_col);
@@ -183,8 +188,8 @@ public:
 
                 if (radius > 0.f)
                 {
-                    glm::vec2 diff = vx.center - world_pos;
-                    if (diff.x * diff.x + diff.y * diff.y > radius * radius) continue;
+                    glm::vec2 voxel_diff = vx.center - local_position;
+                    if (voxel_diff.x * voxel_diff.x + voxel_diff.y * voxel_diff.y > radius * radius) continue;
                 }
 
                 vx.hp -= explosion.strength;
@@ -309,14 +314,14 @@ public:
                 tex_,
                 parent_texture_,
                 local_UV_,
-                Params(
+                voxel_object_params(
                     params_.cell_size,
                     params_.default_hp,
                     params_.depth,
                     params_.paralax,
                     {
-                        (frag_bounds[0] + frag_bounds[2]) / 2,
-                        (frag_bounds[1] + frag_bounds[3]) / 2
+                        (frag_bounds[0] + frag_bounds[2]) * 0.5f,
+                        (frag_bounds[1] + frag_bounds[3]) * 0.5f
                     }
                 ),
                 true)));
@@ -364,8 +369,7 @@ public:
         {
             if (!vx.has_sprite()) continue;
             SpriteData& sd = repo_.dataFromSpriteIdx(vx.spriteIdx);
-            sd.position_x = vx.center.x;
-            sd.position_y = vx.center.y;
+            sd.position = vx.center;
         }
     }
 
@@ -492,7 +496,7 @@ public:
 
     // Применяет мгновенный импульс в точке world_pos
     // impulse — вектор импульса (кг*м/с)
-    void apply_impulse_at(const glm::vec2& impulse, const glm::vec2& world_pos) {
+    void apply_impulse_at(const glm::vec2& impulse, const glm::vec2& world_pos) override {
         // 1. Изменение линейной скорости: v += J / m
         velocity_ += impulse / mass_;
 
@@ -520,9 +524,12 @@ public:
         add_position(velocity_ * dt);
     }
 
-    std::unique_ptr<events::SceneEvent> on_collision() override
+    std::vector<std::unique_ptr<events::SceneEvent>> on_collision() override
     {
-        return std::make_unique<events::SceneEvent>();
+        std::vector<std::unique_ptr<events::SceneEvent>> events;
+        events.reserve(2);
+        events.push_back(std::make_unique<events::SceneEvent>());
+        return events;
     }
 
     int get_local_transform() const
@@ -644,8 +651,7 @@ private:
                 sd.height     = cs;
                 sd.angle      = 0.f;
                 sd.depth      = params_.depth;
-                sd.position_x = vx.center.x;
-                sd.position_y = vx.center.y;
+                sd.position   = vx.center;
                 sd.paralax    = params_.paralax;
                 sd.uvRect.u0  = local_UV_.u0 + static_cast<float>(col + left) * pixel_u;
                 sd.uvRect.v0  = local_UV_.v0 + static_cast<float>(row + up) * pixel_v;
@@ -681,13 +687,12 @@ private:
 
             if (voxel.is_alive()) {
                 auto* data_ptr = repo_.getDataPointer(voxel.spriteIdx);
-                data_ptr->position_x -= orign_shift_.x;
-                data_ptr->position_y -= orign_shift_.y;
+                data_ptr->position -= orign_shift_;
             }
         }
 
         // Смещаем мировую позицию трансформа на ту же величину
-        params_.origin += orign_shift_;
+        params_.origin = orign_shift_;
 
         // Момент инерции считается по уже обновлённым voxel.center
         inertia_moment_ = 0.f;
@@ -697,7 +702,11 @@ private:
             inertia_moment_ += glm::dot(voxel.center, voxel.center) + self_inertia;
         }
 
-        update_transform();
+        for (Voxel& voxel : voxels_) {
+            voxel.center += orign_shift_;
+        }
+
+        add_position(orign_shift_);
         build_local_chunks();
     }
 

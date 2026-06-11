@@ -464,4 +464,9 @@ public:
         }
     }
 #endif
+
+    const glm::vec2& get_size() const
+    {
+        return size_;
+    }
 };

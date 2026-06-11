@@ -36,8 +36,7 @@ public:
 
     PlayerObjectController(DestructibleEntity& obj)
         : object_(obj)
-    {
-    }
+    {}
 
     // Обновление физики объекта на основе ввода
     // dt - время кадра в секундах

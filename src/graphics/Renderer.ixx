@@ -189,7 +189,7 @@ public:
 
             // iPos (локальный) — location 5
             glVertexAttribPointer(5, 2, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
-                (void*)offsetof(SpriteData, position_x));
+                (void*)offsetof(SpriteData, position));
             glEnableVertexAttribArray(5);
             glVertexAttribDivisor(5, 1);
 

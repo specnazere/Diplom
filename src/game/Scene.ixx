@@ -13,6 +13,7 @@ module;
 #include <cassert>
 #include <utility>
 #include <mutex>
+#include <queue>
 
 export module scene;
 
@@ -21,7 +22,6 @@ import texture;
 import atlas;
 import projectile;
 import scene_object;
-import scene_event;
 
 // ---------------------------------------------------------------------------
 //  ObjectHandle — идентификатор объекта в сцене.
@@ -41,7 +41,7 @@ export
 class Scene
 {
 private:
-    struct Slot
+    struct ObjectSlot
     {
         std::unique_ptr<SceneObject> obj;
         uint32_t generation = 0;
@@ -49,10 +49,16 @@ private:
         bool has_physics = true;
     };
 
-    struct ProjectileSlot
+    struct EventSlot
     {
-        std::unique_ptr<projectile> proj;
+        std::unique_ptr<events::SceneEvent> eventPtr;
+        size_t object_index = 0;
 
+        EventSlot(std::unique_ptr<events::SceneEvent>& event, const size_t& parent_object_index)
+        {
+            eventPtr = std::move(event);
+            object_index = parent_object_index;
+        }
     };
 
     struct Signature
@@ -62,17 +68,17 @@ private:
         float     radius;
     };
 
-    std::vector<std::unique_ptr<events::SceneEvent>> events;
+    std::vector<EventSlot> events;
 
-    std::vector<Slot>      slots_;
-    std::vector<ProjectileSlot> projectiles_;
+    std::vector<ObjectSlot> slots_;
     std::vector<Signature> signatures_; // живёт один кадр, пересобирается в update()
 
-    mutable std::mutex     mutex_;       // Added
+    mutable std::mutex mutex_;       // Added
 
 public:
 
-    explicit Scene() {}
+    explicit Scene()
+    {}
 
     Scene(const Scene&)            = delete;
     Scene& operator=(const Scene&) = delete;
@@ -115,11 +121,6 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         free_slot(handle.index);
         return true;
-    }
-
-    void spawnProjectile(const projectile& prototype)
-    {
-        projectiles_.push_back({std::make_unique<projectile>(prototype)});
     }
 
     // -----------------------------------------------------------------------
@@ -208,17 +209,20 @@ public:
         for (auto& frag : new_fragments)
             add(std::move(frag));
 
-        for (auto& slot : slots_) {
-            slot.obj->update(dt);
-        }
+        for_each([dt](const ObjectHandle& handle, SceneObject& obj)
+        {
+            obj.update(dt);
+        });
 
         resolveEvents(events);
     }
 
     void resolveCollisions()
     {
-        for (int32_t ia = 0, ib = 1; ia < static_cast<int32_t>(slots_.size()); ia++)
-        for (ib = ia + 1; ib < static_cast<int32_t>(slots_.size()); ib++) {
+        for (size_t ia = 0, ib = 1; ia < slots_.size(); ia++)
+        for (ib = ia + 1; ib < slots_.size(); ib++) {
+            if (!(slots_[ia].occupied && slots_[ib].occupied)) continue;
+
             SceneObject& a = *slots_[ia].obj;
             SceneObject& b = *slots_[ib].obj;
 
@@ -285,27 +289,62 @@ public:
                 b.add_position(-correction * (1.0f / mB) / invMassSum);
             }
 
-            events.emplace_back(std::move(a.on_collision()));
-            events.emplace_back(std::move(b.on_collision()));
-            // }
+            auto aOnCollisionevents = a.on_collision();
+            for (auto& eventPtr : aOnCollisionevents) {
+                events.emplace_back(eventPtr, ia);
+            }
+            auto bOnCollisionevents = b.on_collision();
+            for (auto& eventPtr : bOnCollisionevents) {
+                events.emplace_back(eventPtr, ib);
+            }
         }
     }
 
-    void resolveEvents(std::vector<std::unique_ptr<events::SceneEvent>>& eventsVector)
+    void resolveEvents(std::vector<EventSlot>& eventsVector)
     {
-        for (std::unique_ptr<events::SceneEvent>& event : eventsVector ) {
-            switch (event->type()) {
+        for (EventSlot& eventSlot : eventsVector ) {
+            switch (eventSlot.eventPtr->type()) {
                 case events::emptyEvent: break;
                 case events::explosionEvent:
                 {
-                    auto* explosionEventPtr = static_cast<events::SpawnExplosion*>(event.get());
+                    auto* explosionEventPtr = static_cast<events::SpawnExplosion*>(eventSlot.eventPtr.get());
                     for_each([explosionEventPtr](ObjectHandle handle, SceneObject& obj)
                     {
-                        obj.area_damage(explosionEventPtr->explosion);
+                        obj.area_damage(explosionEventPtr->explosion, explosionEventPtr->position);
                     });
 
                     break;
                 }
+                case events::selfDestructEvent:
+                {
+                    free_slot(eventSlot.object_index);
+                    break;
+                }
+                case events::addObjectEvent:
+                {
+                    auto* addObjectEventPtr = static_cast<events::AddObject*>(eventSlot.eventPtr.get());
+                    add(std::move(addObjectEventPtr->objectPtr));
+                }
+                // case events::spawnVoxelObjectEvent:
+                // {
+                //     auto* spawnVoxelObjectEventPtr = static_cast<events::SpawnVoxelObject*>(eventSlot.eventPtr.get());
+                //
+                //     add(std::make_unique<VoxelObject>(
+                //         sprites_repo_,
+                //
+                //     ))
+                //
+                //     break;
+                // }
+                // case events::spawnProjectileEvent:
+                // {
+                //     auto* spawnProjectileEventPtr = static_cast<events::SpawnProjectile*>(eventSlot.eventPtr.get());
+                //     add(std::make_unique<Projectile>(
+                //         repo_,
+                //         ));
+                //
+                //     break;
+                // }
             }
         }
         eventsVector.clear();
@@ -341,6 +380,11 @@ public:
         size_t n = 0;
         for (auto& s : slots_) if (s.occupied) ++n;
         return n;
+    }
+
+    void add_event(std::unique_ptr<events::SceneEvent>& event)
+    {
+        events.push_back(EventSlot{event, ~static_cast<size_t>(0)});
     }
 
 private:
