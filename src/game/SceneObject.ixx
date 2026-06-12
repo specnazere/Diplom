@@ -37,7 +37,9 @@ export
 class SceneObject : public PhysicObject, public DestructibleObject
 {
 public:
-    virtual std::vector<std::unique_ptr<events::SceneEvent>> on_collision() = 0;
+    using EventInvokingFunction = void(void* context, std::vector<std::unique_ptr<events::SceneEvent>>& new_events);
+
+    virtual void setupEventInvokingFunction(void* context, EventInvokingFunction* func) = 0;
     virtual const size_t& get_parent_texture() const = 0;
 };
 

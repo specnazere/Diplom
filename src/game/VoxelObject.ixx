@@ -76,6 +76,9 @@ private:
     glm::vec2 velocity_ = {0, 0};
     float angular_velocity_ = 0;
 
+    EventInvokingFunction* newEventFunc_;
+    void* invokeFunctionContext_;
+
 public:
     // -----------------------------------------------------------------------
     //  Конструктор
@@ -360,6 +363,12 @@ public:
         return fragments;
     }
 
+    void setupEventInvokingFunction(void* context, EventInvokingFunction* func) override
+    {
+        invokeFunctionContext_ = context;
+        newEventFunc_ = func;
+    }
+
     // -----------------------------------------------------------------------
     //  Сдвинуть позицию всех спрайтов (если не используется TransformNode)
     // -----------------------------------------------------------------------
@@ -522,14 +531,6 @@ public:
     {
         add_angle(angular_velocity_ * dt);
         add_position(velocity_ * dt);
-    }
-
-    std::vector<std::unique_ptr<events::SceneEvent>> on_collision() override
-    {
-        std::vector<std::unique_ptr<events::SceneEvent>> events;
-        events.reserve(2);
-        events.push_back(std::make_unique<events::SceneEvent>());
-        return events;
     }
 
     int get_local_transform() const

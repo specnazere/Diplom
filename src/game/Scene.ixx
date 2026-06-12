@@ -41,6 +41,12 @@ export
 class Scene
 {
 private:
+    struct EventInvokingContext
+    {
+        Scene* scenePtr;
+        size_t objectIndex;
+    };
+
     struct ObjectSlot
     {
         std::unique_ptr<SceneObject> obj;
@@ -101,6 +107,8 @@ public:
                 slots_[i].obj = std::move(obj);
                 slots_[i].occupied = true;
                 slots_[i].has_physics = has_physic;
+
+                obj->setupEventInvokingFunction(new EventInvokingContext(this, i), &static_add_events);
                 // generation уже инкрементирован при удалении
                 return { i, slots_[i].generation };
             }
@@ -108,6 +116,8 @@ public:
 
         // Нет свободных слотов — расширяем
         const uint32_t idx = static_cast<uint32_t>(slots_.size());
+
+        obj->setupEventInvokingFunction(new EventInvokingContext(this, idx), &static_add_events);
         slots_.push_back({ std::move(obj), 0, true, has_physic});
         return { idx, 0 };
     }
@@ -288,15 +298,6 @@ public:
                 a.add_position(correction * (1.0f / mA) / invMassSum); // Распределение по массам
                 b.add_position(-correction * (1.0f / mB) / invMassSum);
             }
-
-            auto aOnCollisionevents = a.on_collision();
-            for (auto& eventPtr : aOnCollisionevents) {
-                events.emplace_back(eventPtr, ia);
-            }
-            auto bOnCollisionevents = b.on_collision();
-            for (auto& eventPtr : bOnCollisionevents) {
-                events.emplace_back(eventPtr, ib);
-            }
         }
     }
 
@@ -387,7 +388,23 @@ public:
         events.push_back(EventSlot{event, ~static_cast<size_t>(0)});
     }
 
+    void add_events(std::vector<std::unique_ptr<events::SceneEvent>>& events_vector)
+    {
+        for (std::unique_ptr<events::SceneEvent>& eventPtr : events_vector) {
+            events.push_back(EventSlot{eventPtr, ~static_cast<size_t>(0)});
+        }
+    }
+
 private:
+
+    static void static_add_events(void* contextVoided, std::vector<std::unique_ptr<events::SceneEvent>>& events_vector)
+    {
+        EventInvokingContext* context = static_cast<EventInvokingContext*>(contextVoided);
+        for (std::unique_ptr<events::SceneEvent>& eventPtr : events_vector) {
+            context->scenePtr->events.push_back(EventSlot{eventPtr, context->objectIndex});
+        }
+        delete context;
+    }
     // -----------------------------------------------------------------------
     //  Освободить слот, инкрементировав поколение
     // -----------------------------------------------------------------------

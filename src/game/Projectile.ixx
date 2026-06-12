@@ -32,6 +32,9 @@ private:
     explosion_data explosion_;
     float integrity_;
 
+    EventInvokingFunction* newEventFunc_;
+    void* invokeFunctionContext_;
+
     RecursiveHitbox hitbox_;
 
 public:
@@ -89,7 +92,6 @@ public:
 
         sprite_ = repo_.addSprite(sd, sd.depth);
     }
-
 
     const float& get_angle() const override
     {
@@ -162,13 +164,10 @@ public:
         return hitbox_;
     }
 
-    std::vector<std::unique_ptr<events::SceneEvent>> on_collision() override
+    void setupEventInvokingFunction(void* context, EventInvokingFunction* func) override
     {
-        std::vector<std::unique_ptr<events::SceneEvent>> events;
-        events.reserve(2);
-        events.push_back(std::make_unique<events::SpawnExplosion>(explosion_, get_position()));
-        events.push_back(std::make_unique<events::SelfDestruct>());
-        return events;
+        invokeFunctionContext_ = context;
+        newEventFunc_ = func;
     }
 
     void update(const float& dt) override
@@ -185,6 +184,17 @@ public:
         glm::vec2 r = world_pos - get_position(); // плечо силы
         float torque = r.x * impulse.y - r.y * impulse.x; // 2D cross product
         physic_.speed.angularVelocity += torque / physic_.kinetic.moment;
+
+        invoke_explosion();
+    }
+
+    void invoke_explosion()
+    {
+        std::vector<std::unique_ptr<events::SceneEvent>> events;
+        events.reserve(2);
+        events.push_back(std::make_unique<events::SpawnExplosion>(explosion_, get_position()));
+        events.push_back(std::make_unique<events::SelfDestruct>());
+        newEventFunc_(invokeFunctionContext_, events);
     }
 
     std::optional<glm::vec2> find_contact(const PhysicObject& other) const override
