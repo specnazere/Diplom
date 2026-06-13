@@ -11,6 +11,7 @@ module;
 #include <cmath>
 #include <algorithm>
 #include <cassert>
+#include <iostream>
 #include <utility>
 #include <mutex>
 #include <queue>
@@ -181,13 +182,13 @@ public:
     //       добавить фрагменты в сцену.
     //    6. Удалить объекты, у которых не осталось живых вокселей.
     // -----------------------------------------------------------------------
-    void update(float dt)
+    void update(const float& dt)
     {
         // Множество слотов, которые получили урон — им нужен split
         std::vector<uint32_t> damaged_slots;
 
         // Narrow-phase
-        resolveCollisions();
+        resolveCollisions(dt);
 
         // for (ProjectileSlot& projSlot : projectiles_) {
         //     projSlot.proj->update(dt);
@@ -224,7 +225,7 @@ public:
         resolveEvents(events);
     }
 
-    void resolveCollisions()
+    void resolveCollisions(const float& dt)
     {
         for (size_t ia = 0, ib = 1; ia < slots_.size(); ia++)
         for (ib = ia + 1; ib < slots_.size(); ib++) {
@@ -243,7 +244,6 @@ public:
 
             const float restitution = 0.6f; // Попробуй разные значения: 0.0, 0.5, 0.9
             const float percent = -0.2f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
-            const float slop = 0.01f;       // Допуск проникновения (меньше этого значения не корректируем, чтобы избежать дрожания)
 
             const glm::vec2 posA = a.get_position();
             const glm::vec2 posB = b.get_position();
@@ -288,13 +288,15 @@ public:
             b.apply_impulse_at(-impulse, contact_point);
 
             // Позиционная коррекция (чтобы не залипали)
-
-            if (restitution > 0.1f) {
-                const float correctionMag = 0.5f; // Подбери экспериментально (в единицах твоего мира)
-                const glm::vec2 correction = n * correctionMag * percent;
-                a.add_position(correction * (1.0f / mA) / invMassSum); // Распределение по массам
-                b.add_position(-correction * (1.0f / mB) / invMassSum);
-            }
+            const glm::vec2 vADirection = glm::normalize(a.get_velocity() + glm::vec2(-a.get_angular_velocity() * rA.y, a.get_angular_velocity() * rA.x));
+            const glm::vec2 vBDirection = glm::normalize(b.get_velocity() + glm::vec2(-b.get_angular_velocity() * rB.y, b.get_angular_velocity() * rB.x));
+            float dotA = glm::dot(vADirection, n);
+            float dotB = glm::dot(vBDirection, n);
+            //std::cout << dotA << " " << dotB << std::endl;
+            const float correctionMag = 0.05f; // Подбери экспериментально (в единицах твоего мира)
+            const glm::vec2 correction = n * correctionMag * percent;
+            a.add_position(dotA * correction * (1.0f / mA) / invMassSum); // Распределение по массам
+            b.add_position(dotB * -correction * (1.0f / mB) / invMassSum);
         }
     }
 
