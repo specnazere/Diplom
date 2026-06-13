@@ -170,8 +170,8 @@ public:
         glm::vec2 diff = position - grid_center;
 
         glm::vec2 local_position = glm::vec2(
-            diff.x * cos_value - diff.y * sin_value,
-            diff.x * sin_value + diff.y * cos_value);
+            diff.x * cos_value - diff.y * -sin_value,
+            diff.x * -sin_value + diff.y * cos_value);
 
         // Перевод мировых координат в индексы сетки с учётом центрирования
         int start_col = static_cast<int>((local_position.x - radius + (cols_ * cs) * 0.5f) / cs);

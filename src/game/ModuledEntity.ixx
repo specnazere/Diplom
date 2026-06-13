@@ -158,10 +158,12 @@ public:
 
         // 1. Применяем скорости к позиции (встроенная физика объекта)
         glm::vec2 unrotated_acceleration = stats_.force / object_->get_mass() * dt;
-        double angle = object_->local_rotation();
+        float angle = object_->local_rotation();
+        float cosA = std::cosf(angle);
+        float sinA = std::sinf(angle);
         object_->add_velocity({
-            unrotated_acceleration.x * std::cos(angle) + unrotated_acceleration.y * std::sin(angle),
-            unrotated_acceleration.y * std::cos(angle) + unrotated_acceleration.x * std::sin(angle)});
+            unrotated_acceleration.x * cosA - unrotated_acceleration.y * sinA,
+            unrotated_acceleration.y * cosA + unrotated_acceleration.x * sinA});
         object_->add_angular_velocity(stats_.torque / object_->get_moment() * dt);
 
         object_->update(dt);
