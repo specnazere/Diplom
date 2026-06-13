@@ -128,8 +128,9 @@ void init_systems() {
 
 // --- Helper: Create Scene Objects ---
 // Возвращает указатель на DestructibleEntity для управления
-std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& scene) {
-    std::vector<std::unique_ptr<DestructibleEntity>> entities;
+std::vector<std::unique_ptr<ModuledEntity>> create_scene_entities(Scene& scene)
+{
+    std::vector<std::unique_ptr<ModuledEntity>> entities;
 
     const auto& spaceship_texture = res.texturesRepo["spaceship"].object;
     const size_t spaceship_texture_id = res.texturesRepo["spaceship"].iDesc;
@@ -140,7 +141,7 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
     const uv_rect turret_texture_uv = global_repo->atlas.get_uv(turret_texture_id);
 
     // Создаем первый корабль
-    auto ship1 = std::make_unique<DestructibleEntity>(
+    auto ship1 = std::make_unique<ModuledEntity>(
         *global_repo,
         spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
         voxel_object_params {5.f, 5.f, 0.f, 1.f, {0.f, -200.f}} // Cell size 5, Origin y=-200
@@ -175,15 +176,28 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
 
     ship1->add_module(std::make_unique<VoxelModuleUniversalEngine>(10, glm::vec2(0.f), 0.f, engine_coords, 300000.f, 30000000.f));
 
-    ship1->add_module(std::make_unique<VoxelModuleTurret>(
+    ProjectileMakeupData proj{
+            spaceship_texture_id,
+            spaceship_texture_uv,
+            kinetic_parameters (10.f, 100.f),
+            glm::vec2(10.f, 10.f),
+            explosion_data(50.f, 100.f, 1000.f),
+            500.f,
+            glm::vec2(150.f, 0.f),
+            glm::vec2(100.f, 0.f)
+        };
+
+    ship1->add_module(std::move(std::make_unique<VoxelModuleTurret>(
         15,
         glm::vec2(0.f),
         0.f,
         turret_coords,
         *turret.get(),
         10.f,
-        ship1->get_object().get_local_transform()
-        ));
+        ship1->get_object().get_local_transform(),
+        0.25f,
+        proj
+        )));
     scene.add(std::move(turret), false);
 
     scene.add(std::unique_ptr<VoxelObject>(&ship1->get_object())); // Scene должен хранить unique_ptr<DestructibleEntity> или базовый класс
@@ -194,7 +208,7 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
     entities.push_back(std::move(ship1));
 
     // Второй корабль (противник/статичный объект)
-    auto ship2 = std::make_unique<DestructibleEntity>(
+    auto ship2 = std::make_unique<ModuledEntity>(
         *global_repo,
         spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
         voxel_object_params {5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
@@ -202,21 +216,6 @@ std::vector<std::unique_ptr<DestructibleEntity>> create_scene_entities(Scene& sc
 
     scene.add(std::unique_ptr<VoxelObject>(&ship2->get_object()));
     entities.push_back(std::move(ship2));
-
-    std::unique_ptr<Projectile> proj = std::make_unique<Projectile>(
-        *global_repo,
-        spaceship_texture,
-        spaceship_texture_id,
-        spaceship_texture_uv,
-        kinetic_parameters (10.f, 100.f),
-        glm::vec2(10.f, 10.f),
-        explosion_data(50.f, 100.f, 1000.f),
-        500.f,
-        glm::vec2(0.f, 0.f),
-        glm::vec2(1.f, 0.f)
-        );
-
-    scene.add(std::move(proj));
 
     return entities;
 }
@@ -230,6 +229,7 @@ InputState get_input() {
     input.right = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
     input.rotate_left  = glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS;
     input.rotate_right = glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS;
+    input.fire = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
 
     double x, y;
     glfwGetCursorPos(window, &x, &y);

@@ -208,7 +208,7 @@ public:
             for (Sprite& s : sprites_) {
                 if (s.isValid() && s.dataIdx == last_data_idx) {
                     s.dataIdx = data_idx_to_remove;
-                    break;
+                    // break;
                 }
             }
         }
@@ -229,7 +229,7 @@ public:
 
     SpriteData* getDataPointer(size_t sprite_idx)
     {
-        return sprite_data_.empty() ? nullptr : &sprite_data_[sprite_idx];
+        return &sprite_data_[sprites_[sprite_idx].dataIdx];
     }
 
     size_t getDataSize() const { return sprite_data_.size(); }
@@ -273,8 +273,10 @@ public:
 
         while (transform != ~size_t{0}) {
             auto& transform_ref = transforms_[transform];
-            rotated_position.x = position.x * cosf(transform_ref.angle) + position.y * sinf(transform_ref.angle);
-            rotated_position.y = position.y * cosf(transform_ref.angle) + position.x * sinf(transform_ref.angle);
+            float cosA = std::cosf(transform_ref.angle);
+            float sinA = std::sinf(transform_ref.angle);
+            rotated_position.x = position.x * cosA - position.y * sinA;
+            rotated_position.y = position.x * sinA + position.y * cosA;
             rotated_position += transform_ref.position;
             position = rotated_position;
             transform = transform_ref.parentIndex;

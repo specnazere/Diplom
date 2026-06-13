@@ -6,7 +6,10 @@
 #define VOXEL_OBJECT_ACTIONS_H
 
 #include <functional>
+#include <optional>
 #include <glm/vec2.hpp>
+
+import projectile;
 
 enum action
 {
@@ -30,8 +33,8 @@ using rightFunction = std::function<float(const glm::vec2& mass_center)>;
 using yawLeftFunction = std::function<float(const glm::vec2& mass_center)>;
 using yawRightFunction = std::function<float(const glm::vec2& mass_center)>;
 
-// TODO: must return something
-using primaryWeaponFunction = std::function<void()>;
+// returns projectile makeup data
+using primaryWeaponFunction = std::function<std::optional<ProjectileMakeupData>(const float& dt)>;
 
 // returns nothing, must rotate itself
 using targetFunction = std::function<void(const glm::vec2& target)>;

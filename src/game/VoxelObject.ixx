@@ -56,8 +56,6 @@ public:
     static constexpr voxel_object_params standart_params = voxel_object_params(5.f, 1.f, 0.f, 1.f, {0.f, 0.f});
 
 private:
-    SpritesRepository& repo_;
-    const texture& tex_;
     voxel_object_params params_;
     uv_rect local_UV_;
     size_t local_transform_;
@@ -75,6 +73,10 @@ private:
 
     glm::vec2 velocity_ = {0, 0};
     float angular_velocity_ = 0;
+
+protected:
+    SpritesRepository& repo_;
+    const texture& tex_;
 
     EventInvokingFunction* newEventFunc_;
     void* invokeFunctionContext_;
@@ -455,7 +457,7 @@ public:
         return parent_texture_;
     }
 
-    const RecursiveHitbox& get_hitbox() const
+    const RecursiveHitbox& get_hitbox() const override
     {
         return *hitbox_;
     }
@@ -520,6 +522,11 @@ public:
     void apply_static_impulse(const glm::vec2& impulse) {
         velocity_ += impulse / mass_;
         // Угловую можно не менять, если удар в центр масс, или рассчитать отдельно
+    }
+
+    void invokeEventsFromThis(std::vector<std::unique_ptr<events::SceneEvent>> outside_events) override
+    {
+        newEventFunc_(invokeFunctionContext_, outside_events);
     }
 
     // -----------------------------------------------------------------------

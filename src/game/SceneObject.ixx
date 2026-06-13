@@ -10,6 +10,8 @@ module;
 #include <memory>
 #include <vector>
 
+#include "imgui/imgui_impl_opengl3_loader.h"
+
 export module scene_object;
 
 import physic_object;
@@ -40,6 +42,7 @@ public:
     using EventInvokingFunction = void(void* context, std::vector<std::unique_ptr<events::SceneEvent>>& new_events);
 
     virtual void setupEventInvokingFunction(void* context, EventInvokingFunction* func) = 0;
+    virtual void invokeEventsFromThis(std::vector<std::unique_ptr<events::SceneEvent>>) = 0;
     virtual const size_t& get_parent_texture() const = 0;
 };
 
@@ -71,6 +74,11 @@ namespace events
     struct AddObject final : SceneEvent
     {
         std::unique_ptr<SceneObject> objectPtr;
+
+        explicit AddObject(std::unique_ptr<SceneObject> newObjectPtr)
+        {
+            objectPtr = std::move(newObjectPtr);
+        }
 
         eventType type() override {
             return addObjectEvent;

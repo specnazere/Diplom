@@ -3,22 +3,19 @@
 //
 module;
 
-#include <algorithm>
-
-#include "graphics/uv_rect.h"
-#include "voxel_object_actions.h"
-
-#include <cmath>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <utility>
 #include <vector>
 #include <functional>
-#include <iostream>
 #include <memory>
 #include <ostream>
-#include <glm/gtc/quaternion.hpp>
 
+#include "graphics/uv_rect.h"
+#include "voxel_object_actions.h"
 #include "voxel_object_params.h"
 
 export module destructible_entity;
@@ -27,6 +24,7 @@ import voxel_object;
 import sprite_repository;
 import texture;
 import voxel_module;
+import scene_object;
 
 export
 struct EntityStats
@@ -50,7 +48,7 @@ namespace signals
 
 // Обертка над объектом и его логикой
 export
-class DestructibleEntity
+class ModuledEntity
 {
 public:
     struct ControlState
@@ -60,6 +58,7 @@ public:
     };
 
 private:
+    SpritesRepository& repo_;
     std::unique_ptr<VoxelObject> object_;
     std::vector<std::unique_ptr<VoxelModule>> modules_;
     size_t initial_alive_count_ = 0;
@@ -75,22 +74,22 @@ public:
     glm::vec2 target;
 
     // Конструктор принимает все необходимое для создания DestructibleObject
-    DestructibleEntity(
+    ModuledEntity(
         SpritesRepository& repo,
         const texture& tex,
         size_t texture_id,
         const uv_rect& local_uv,
         voxel_object_params params = VoxelObject::standart_params,
         bool chipped = false,
-        unsigned char alpha_threshold = 0
-    )
+        unsigned char alpha_threshold = 0)
+        : repo_(repo)
     {
         object_ = std::make_unique<VoxelObject>(repo, tex, texture_id, local_uv, params, chipped, alpha_threshold);
         initial_alive_count_ = count_alive_voxels();
         recalculate_state();
     }
 
-    void add_module(std::unique_ptr<VoxelModule>&& module)
+    void add_module(std::unique_ptr<VoxelModule> module)
     {
         modules_.push_back(std::move(module));
         modules_.back()->apply_actions(actions_);
@@ -108,7 +107,7 @@ public:
 
     // Обновление физики и состояния
     // dt - дельта времени
-    void update(float dt)
+    void update(const float& dt)
     {
         stats_ = {};
 
@@ -140,6 +139,16 @@ public:
         if (signal & signals::yawRightSignal) {
             for (auto& func : actions_.yawRight) {
                 stats_.torque += func({0.f, 0.f});
+            }
+        }
+        if (signal & signals::primaryWeaponSignal) {
+            for (auto& fire_action : actions_.primaryWeapon) {
+                std::optional<ProjectileMakeupData> projectile_data = fire_action(dt);
+                if (projectile_data.has_value()) {
+                    std::vector<std::unique_ptr<events::SceneEvent>> events;
+                    events.push_back(std::make_unique<events::AddObject>(std::make_unique<Projectile>(repo_, projectile_data.value())));
+                    object_->invokeEventsFromThis(std::move(events));
+                }
             }
         }
 

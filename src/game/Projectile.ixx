@@ -21,76 +21,58 @@ import scene_object;
 import recursive_hitbox;
 
 export
+struct ProjectileMakeupData
+{
+    size_t texture_id;
+    uv_rect local_UV;
+    kinetic_parameters kinetic;
+    glm::vec2 size;
+    explosion_data explosion;
+    float integrity;
+    glm::vec2 position = {};
+    glm::vec2 velocity = {};
+};
+
+export
 class Projectile : public SceneObject
 {
 private:
     SpritesRepository& repo_;
     physic_parameters physic_;
-    const texture& tex_;
     size_t texture_id_;
     size_t sprite_;
     explosion_data explosion_;
     float integrity_;
 
-    EventInvokingFunction* newEventFunc_;
-    void* invokeFunctionContext_;
+    EventInvokingFunction* newEventFunc_ = nullptr;
+    void* invokeFunctionContext_ = nullptr;
 
     RecursiveHitbox hitbox_;
 
 public:
     Projectile(
     SpritesRepository& repository,
-    const texture& tex,
-    const size_t texture_id,
-    const uv_rect& local_UV,
-    const kinetic_parameters& kinetic,
-    const glm::vec2& size,
-    const explosion_data& explosion,
-    const float& integrity,
-    const glm::vec2& position = {},
-    const glm::vec2& velocity = {})
+    ProjectileMakeupData data)
     : repo_(repository)
-    , tex_(tex)
-    , texture_id_(texture_id)
-    , physic_({velocity, 0.f, kinetic.mass, kinetic.moment})
-    , explosion_(explosion)
-    , integrity_(integrity)
-    , hitbox_({0, 0, 1, 1}, 1, size, size * 0.5f)
+    , physic_({data.velocity, 0.f, data.kinetic.mass, data.kinetic.moment})
+    , texture_id_(data.texture_id)
+    , explosion_(data.explosion)
+    , integrity_(data.integrity)
+    , hitbox_({0, 0, 1, 1}, 1, data.size, data.size * 0.5f)
     {
         SpriteData sd;
-        sd.width      = size.x;
-        sd.height     = size.y;
+        sd.width      = data.size.x;
+        sd.height     = data.size.y;
         sd.angle      = 0.f;
         sd.depth      = 0;
-        sd.position = position;
+        sd.position = data.position;
         sd.paralax    = 1;
-        sd.uvRect     = local_UV;
+        sd.uvRect     = data.local_UV;
         sd.transformIdx = ~0u;
 
         sprite_ = repo_.addSprite(sd, sd.depth);
-    }
-
-    Projectile(const Projectile& other)
-    : repo_(other.repo_)
-    , tex_(other.tex_)
-    , texture_id_(other.texture_id_)
-    , physic_({other.get_velocity(), 0.f, other.get_mass(), other.get_moment()})
-    , explosion_(other.explosion_)
-    , integrity_(other.integrity_)
-    , hitbox_({0, 0, 1, 1}, 1, other.hitbox_.get_size(), other.hitbox_.get_size() * 0.5f)
-    {
-        SpriteData sd;
-        sd.width      = tex_.width;
-        sd.height     = tex_.height;
-        sd.angle      = 0.f;
-        sd.depth      = 0;
-        glm::vec2 pos = other.get_position();
-        sd.position = pos;
-        sd.paralax    = 1;
-        sd.uvRect     = other.getUV();
-        sd.transformIdx = ~0u;
-
-        sprite_ = repo_.addSprite(sd, sd.depth);
+        Projectile::set_velocity(data.velocity);
+        Projectile::set_position(data.position);
     }
 
     const float& get_angle() const override
@@ -169,6 +151,12 @@ public:
         invokeFunctionContext_ = context;
         newEventFunc_ = func;
     }
+
+    void invokeEventsFromThis(std::vector<std::unique_ptr<events::SceneEvent>> outside_events) override
+    {
+        newEventFunc_(invokeFunctionContext_, outside_events);
+    }
+
 
     void update(const float& dt) override
     {

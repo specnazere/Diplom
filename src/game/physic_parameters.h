@@ -5,7 +5,7 @@
 #ifndef PHYSIC_PARAMETERS_H
 #define PHYSIC_PARAMETERS_H
 
-#import "glm/vec2.hpp"
+#include "glm/vec2.hpp"
 
 struct kinetic_parameters
 {

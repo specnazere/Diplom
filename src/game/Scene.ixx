@@ -60,7 +60,7 @@ private:
         std::unique_ptr<events::SceneEvent> eventPtr;
         size_t object_index = 0;
 
-        EventSlot(std::unique_ptr<events::SceneEvent>& event, const size_t& parent_object_index)
+        EventSlot(std::unique_ptr<events::SceneEvent> event, const size_t& parent_object_index)
         {
             eventPtr = std::move(event);
             object_index = parent_object_index;
@@ -98,7 +98,6 @@ public:
     {
         assert(obj != nullptr);
 
-        std::lock_guard<std::mutex> lock(mutex_);
         // Ищем свободный слот среди удалённых
         for (uint32_t i = 0; i < static_cast<uint32_t>(slots_.size()); ++i)
         {
@@ -108,7 +107,7 @@ public:
                 slots_[i].occupied = true;
                 slots_[i].has_physics = has_physic;
 
-                obj->setupEventInvokingFunction(new EventInvokingContext(this, i), &static_add_events);
+                slots_[i].obj->setupEventInvokingFunction(new EventInvokingContext(this, i), &static_add_events);
                 // generation уже инкрементирован при удалении
                 return { i, slots_[i].generation };
             }
@@ -184,8 +183,6 @@ public:
     // -----------------------------------------------------------------------
     void update(float dt)
     {
-        std::lock_guard<std::mutex> lock(mutex_);
-
         // Множество слотов, которые получили урон — им нужен split
         std::vector<uint32_t> damaged_slots;
 
@@ -385,13 +382,13 @@ public:
 
     void add_event(std::unique_ptr<events::SceneEvent>& event)
     {
-        events.push_back(EventSlot{event, ~static_cast<size_t>(0)});
+        events.push_back(EventSlot(std::move(event), ~static_cast<size_t>(0)));
     }
 
     void add_events(std::vector<std::unique_ptr<events::SceneEvent>>& events_vector)
     {
         for (std::unique_ptr<events::SceneEvent>& eventPtr : events_vector) {
-            events.push_back(EventSlot{eventPtr, ~static_cast<size_t>(0)});
+            events.push_back(EventSlot(std::move(eventPtr), ~static_cast<size_t>(0)));
         }
     }
 
@@ -401,9 +398,9 @@ private:
     {
         EventInvokingContext* context = static_cast<EventInvokingContext*>(contextVoided);
         for (std::unique_ptr<events::SceneEvent>& eventPtr : events_vector) {
-            context->scenePtr->events.push_back(EventSlot{eventPtr, context->objectIndex});
+            context->scenePtr->events.push_back(EventSlot(std::move(eventPtr), context->objectIndex));
         }
-        delete context;
+        events_vector.clear();
     }
     // -----------------------------------------------------------------------
     //  Освободить слот, инкрементировав поколение

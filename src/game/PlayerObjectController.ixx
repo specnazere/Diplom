@@ -23,18 +23,20 @@ export struct InputState
     bool rotate_left  = false;
     bool rotate_right = false;
 
+    bool fire = false;
+
     glm::vec2 globalCursorPosition{};
 };
 
 export class PlayerObjectController
 {
 private:
-    DestructibleEntity& object_;
+    ModuledEntity& object_;
 
 public:
     // Настройки управления
 
-    PlayerObjectController(DestructibleEntity& obj)
+    PlayerObjectController(ModuledEntity& obj)
         : object_(obj)
     {}
 
@@ -44,12 +46,15 @@ public:
     {
         signals::signal_t& signal = object_.signal;
         signal = 0;
+
         if (input.up)    signal += signals::forwardSignal;
         if (input.down)  signal += signals::backwardSignal;
         if (input.right) signal += signals::rightSignal;
         if (input.left)  signal += signals::leftSignal;
         if (input.rotate_right) signal += signals::yawLeftSignal;
         if (input.rotate_left)  signal += signals::yawRightSignal;
+        if (input.fire)
+            signal += signals::primaryWeaponSignal;
 
         object_.target = input.globalCursorPosition;
     }
