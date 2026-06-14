@@ -181,10 +181,10 @@ std::vector<std::unique_ptr<ModuledEntity>> create_scene_entities(Scene& scene)
             spaceship_texture_uv,
             kinetic_parameters (10.f, 100.f),
             glm::vec2(10.f, 10.f),
-            explosion_data(50.f, 100.f, 1000.f),
+            explosion_data(50.f, 100.f, 10000.f),
             500.f,
             glm::vec2(150.f, 0.f),
-            glm::vec2(100.f, 0.f)
+            glm::vec2(1000.f, 0.f)
         };
 
     ship1->add_module(std::move(std::make_unique<VoxelModuleTurret>(

@@ -172,24 +172,25 @@ public:
     {
         bool changed = false;
 
+        struct DestroyedVoxelData {
+            glm::vec2 world_pos;
+        };
+        std::vector<DestroyedVoxelData> destroyed_voxels;
+        destroyed_voxels.reserve(100);
+
         const float& cs = params_.cell_size;
         const float& radius = explosion.radius;
-        const float& grid_angle = global_rotation();
+        const float& angle = global_rotation();
 
-        float cos_value = cos(grid_angle);
-        float sin_value = sin(grid_angle);
-        glm::vec2 grid_center = global_position();
-        // - glm::vec2(
-        //     mass_center_position_.x * cos_value - mass_center_position_.y * sin_value,
-        //     mass_center_position_.x * sin_value + mass_center_position_.y * cos_value);
+        float cos_value = cos(angle);
+        float sin_value = sin(angle);
+        glm::vec2 grid_center = global_position() + math::rotate_vec2(repo_.getTransform(grid_center_transform_).position, angle);
 
         glm::vec2 diff = position - grid_center;
-
         glm::vec2 local_position = glm::vec2(
             diff.x * cos_value - diff.y * -sin_value,
             diff.x * -sin_value + diff.y * cos_value);
 
-        // Перевод мировых координат в индексы сетки с учётом центрирования
         int start_col = static_cast<int>((local_position.x - radius + (cols_ * cs) * 0.5f) / cs);
         int end_col   = static_cast<int>((local_position.x + radius + (cols_ * cs) * 0.5f) / cs) + 1;
         int start_row = static_cast<int>((local_position.y - radius + (rows_ * cs) * 0.5f) / cs);
@@ -217,6 +218,7 @@ public:
                 if (vx.hp <= 0.f)
                 {
                     vx.hp = 0.f;
+                    destroyed_voxels.push_back({grid_center + math::rotate_vec2(vx.center, angle)});
                     destroy_voxel(vx);
                     changed = true;
                 }
@@ -224,11 +226,77 @@ public:
         }
 
         if (changed) {
-            recalculate_physic();
-
             std::vector<std::unique_ptr<events::SceneEvent>> events;
-            for (std::unique_ptr<VoxelObject>& fragmentPtr : split_if_disconnected()) {
-                events.emplace_back(std::make_unique<events::AddObject>(std::move(fragmentPtr)));
+            if (recalculate_physic()) {
+                std::vector<std::unique_ptr<VoxelObject>> fragments = split_if_disconnected();
+
+                if (!destroyed_voxels.empty()) {
+                    // Собираем все возможные цели: основной объект + все фрагменты
+                    struct Target {
+                        VoxelObject* obj;
+                        glm::vec2 cm;
+                    };
+                    std::vector<Target> targets;
+                    targets.reserve(fragments.size() + 1);
+
+                    targets.push_back({this, get_position()});
+                    for (auto& frag : fragments) {
+                        targets.push_back({frag.get(), frag->get_position()});
+                    }
+
+                    for (const auto& dv : destroyed_voxels) {
+                        // 1. Направление от центра взрыва к уничтоженному вокселю
+                        glm::vec2 dir_voxel = dv.world_pos - position;
+                        float len_voxel = glm::length(dir_voxel);
+                        if (len_voxel < 0.001f) continue; // Взрыв прямо в вокселе, игнорируем, чтобы не делить на 0
+                        dir_voxel /= len_voxel;
+
+                        // 2. Ищем цель с наименьшим углом (максимальный dot product)
+                        float max_dot = -2.0f; // cos(180°) = -1, так что -2.0f гарантированно меньше любого реального значения
+                        VoxelObject* best_target = nullptr;
+
+                        for (const auto& t : targets) {
+                            glm::vec2 dir_cm = t.cm - position;
+                            float len_cm = glm::length(dir_cm);
+
+                            if (len_cm < 0.001f) {
+                                // Взрыв произошёл точно в центре масс этого объекта.
+                                // Это идеальное совпадение (угол 0, dot = 1).
+                                max_dot = 2.0f;
+                                best_target = t.obj;
+                                break;
+                            }
+
+                            dir_cm /= len_cm;
+
+                            // Скалярное произведение = cos(угла). Чем больше, тем меньше угол.
+                            float dot = glm::dot(dir_voxel, dir_cm);
+                            if (dot > max_dot) {
+                                max_dot = dot;
+                                best_target = t.obj;
+                            }
+                        }
+
+                        // 3. Применяем импульс только к победителю
+                        if (best_target) {
+                            // Магнитуда импульса.
+                            // Если хочешь зависимость от расстояния, раскомментируй нужную строку:
+                            // float magnitude = explosion.impulse; // Константная сила
+                            // float magnitude = explosion.impulse * len_voxel; // Чем дальше, тем сильнее (как ты просил ранее)
+                            float magnitude = explosion.impulse / (len_voxel * len_voxel); // Классическое затухание (рекомендую)
+
+                            glm::vec2 impulse_vec = dir_voxel * magnitude;
+                            best_target->apply_impulse_at(impulse_vec, dv.world_pos);
+                        }
+                    }
+                }
+
+                for (std::unique_ptr<VoxelObject>& fragmentPtr : fragments) {
+                    events.emplace_back(std::make_unique<events::AddObject>(std::move(fragmentPtr)));
+                }
+            }
+            else {
+                events.emplace_back(std::make_unique<events::SelfDestruct>());
             }
             newEventFunc_(invokeFunctionContext_, events);
         }
@@ -355,15 +423,18 @@ public:
                 src.status    = VoxelStatus::Absent;
             }
 
-            // glm::vec2 dOrign = params_.origin - frag.params_.origin;
-
-            // for (Voxel& voxel : frag.voxels_) {
-            //     voxel.center.x += dOrign.x;
-            //     voxel.center.y += dOrign.y;
-            // }
-
             frag.recalculate_physic();
             frag.sync_sprites();
+
+            {
+                const glm::vec2 r_vec = frag.get_position() - get_position();
+
+                const float omega = angular_velocity_;
+                const glm::vec2 v_add(-omega * r_vec.y, omega * r_vec.x);
+
+                frag.set_velocity(velocity_ + v_add);
+                frag.set_angular_velocity(omega);
+            }
         }
 
         // После передачи фрагментов пересчитываем чанки текущего объекта
@@ -720,7 +791,7 @@ private:
         }
     }
 
-    void recalculate_physic()
+    bool recalculate_physic()
     {
         glm::vec2 new_mass_center = {0.f, 0.f};
         float alive_num = 0.f;
@@ -731,7 +802,7 @@ private:
             alive_num += 1.f;
         }
 
-        if (alive_num < 1.f) return;
+        if (alive_num < 1.f) return false;
 
         new_mass_center /= alive_num;
         mass_ = alive_num;
@@ -754,6 +825,43 @@ private:
 
         // mass_center_ = new_mass_center;
         build_local_chunks();
+        return true;
+    }
+
+    void update_boundary()
+    {
+        for (int i = 0; i < (cols_ * rows_); ++i) {
+            if (i < cols_ || // верхняя граница
+                (i + 1) % (rows_ + 1) == 0 || // правая граница
+                i % (rows_ + 1) == 0 || // левая граница
+                i < cols_ * (rows_ - 1)) // нижняя граница
+            {
+                if (voxels_[i].is_alive()) {
+                    voxels_[i].status = VoxelStatus::Boundary;
+                }
+                continue;
+            }
+
+            if (voxels_[i].is_alive()) {
+                if (voxels_[i + 1].is_alive() &&
+                    voxels_[i - 1].is_alive() &&
+                    voxels_[i + cols_].is_alive() &&
+                    voxels_[i - cols_].is_alive()
+                ) voxels_[i].status = VoxelStatus::Active;
+                else {
+                    voxels_[i].status = VoxelStatus::Boundary;
+                }
+            }
+        }
+    }
+
+    std::vector<Voxel> get_boundary()
+    {
+        std::vector<Voxel> boundary_voxels;
+        for (const size_t& i : boundary_) {
+            boundary_voxels.push_back(voxels_[i]);
+        }
+        return boundary_voxels;
     }
 
     void destroy_voxel(Voxel& vx)

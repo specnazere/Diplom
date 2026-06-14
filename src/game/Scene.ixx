@@ -315,9 +315,11 @@ public:
                 case events::explosionEvent:
                 {
                     auto* explosionEventPtr = static_cast<events::SpawnExplosion*>(eventSlot.eventPtr.get());
-                    for_each([explosionEventPtr](ObjectHandle handle, SceneObject& obj)
+                    for_each([explosionEventPtr, this](ObjectHandle handle, SceneObject& obj)
                     {
-                        obj.area_damage(explosionEventPtr->explosion, explosionEventPtr->position);
+                        if (slots_[handle.index].has_physics) {
+                            obj.area_damage(explosionEventPtr->explosion, explosionEventPtr->position);
+                        }
                     });
 
                     break;
