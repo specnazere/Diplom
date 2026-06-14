@@ -90,6 +90,7 @@ protected:
 
     EventInvokingFunction* newEventFunc_;
     void* invokeFunctionContext_;
+    size_t onSceneId_;
 
 public:
     // -----------------------------------------------------------------------
@@ -443,10 +444,11 @@ public:
         return fragments;
     }
 
-    void setupEventInvokingFunction(void* context, EventInvokingFunction* func) override
+    void onConnectInit(void* context, EventInvokingFunction* func, const size_t& id) override
     {
         invokeFunctionContext_ = context;
         newEventFunc_ = func;
+        onSceneId_ = id;
     }
 
     // -----------------------------------------------------------------------
@@ -658,6 +660,11 @@ public:
     float local_rotation()
     {
         return repo_.getTransform(mass_center_transform_).angle;
+    }
+
+    const size_t& id() override
+    {
+        return onSceneId_;
     }
 
 #ifdef DEBUG_COLLISION

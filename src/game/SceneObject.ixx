@@ -41,7 +41,8 @@ class SceneObject : public PhysicObject, public DestructibleObject
 public:
     using EventInvokingFunction = void(void* context, std::vector<std::unique_ptr<events::SceneEvent>>& new_events);
 
-    virtual void setupEventInvokingFunction(void* context, EventInvokingFunction* func) = 0;
+    virtual void onConnectInit(void* context, EventInvokingFunction* func, const size_t& id) = 0;
+    virtual const size_t& id() = 0;
     virtual void invokeEventsFromThis(std::vector<std::unique_ptr<events::SceneEvent>>) = 0;
     virtual const size_t& get_parent_texture() const = 0;
 
@@ -78,10 +79,12 @@ namespace events
     struct AddObject final : SceneEvent
     {
         std::unique_ptr<SceneObject> objectPtr;
+        std::vector<size_t> ignoredObjects;
 
-        explicit AddObject(std::unique_ptr<SceneObject> newObjectPtr)
+        explicit AddObject(std::unique_ptr<SceneObject> newObjectPtr, const std::vector<size_t>& ignoredObjects_input = {})
         {
             objectPtr = std::move(newObjectPtr);
+            ignoredObjects = ignoredObjects_input;
         }
 
         eventType type() override {

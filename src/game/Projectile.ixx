@@ -48,6 +48,7 @@ private:
     void* invokeFunctionContext_ = nullptr;
 
     RecursiveHitbox hitbox_;
+    size_t onSceneId_;
 
 public:
     Projectile(
@@ -58,12 +59,12 @@ public:
     , texture_id_(data.texture_id)
     , explosion_(data.explosion)
     , integrity_(data.integrity)
-    , hitbox_({0, 0, 1, 1}, 1, data.size, data.size * 0.5f)
-    {
+    , hitbox_({0, 0, 1, 1}, 1, data.size * 0.5f, data.size * 0.25f)
+{
         SpriteData sd;
         sd.width      = data.size.x;
         sd.height     = data.size.y;
-        sd.angle      = 0.f;
+        sd.angle      = std::atan2(data.velocity.y, data.velocity.x);
         sd.depth      = 0;
         sd.position = data.position;
         sd.paralax    = 1;
@@ -146,10 +147,16 @@ public:
         return hitbox_;
     }
 
-    void setupEventInvokingFunction(void* context, EventInvokingFunction* func) override
+    const size_t& id() override
+    {
+        return onSceneId_;
+    }
+
+    void onConnectInit(void* context, EventInvokingFunction* func, const size_t& id) override
     {
         invokeFunctionContext_ = context;
         newEventFunc_ = func;
+        onSceneId_ = id;
     }
 
     void invokeEventsFromThis(std::vector<std::unique_ptr<events::SceneEvent>> outside_events) override

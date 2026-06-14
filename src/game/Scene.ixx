@@ -15,6 +15,7 @@ module;
 #include <utility>
 #include <mutex>
 #include <queue>
+#include <set>
 
 export module scene;
 
@@ -52,6 +53,7 @@ private:
     {
         std::unique_ptr<SceneObject> obj;
         uint32_t generation = 0;
+        std::set<size_t> ignoredObjects;
         bool occupied   = false;
         bool has_physics = true;
     };
@@ -108,7 +110,7 @@ public:
                 slots_[i].occupied = true;
                 slots_[i].has_physics = has_physic;
 
-                slots_[i].obj->setupEventInvokingFunction(new EventInvokingContext(this, i), &static_add_events);
+                slots_[i].obj->onConnectInit(new EventInvokingContext(this, i), &static_add_events, i);
                 // generation уже инкрементирован при удалении
                 return { i, slots_[i].generation };
             }
@@ -117,8 +119,8 @@ public:
         // Нет свободных слотов — расширяем
         const uint32_t idx = static_cast<uint32_t>(slots_.size());
 
-        obj->setupEventInvokingFunction(new EventInvokingContext(this, idx), &static_add_events);
-        slots_.push_back({ std::move(obj), 0, true, has_physic});
+        obj->onConnectInit(new EventInvokingContext(this, idx), &static_add_events, idx);
+        slots_.push_back({std::move(obj), 0, {}, true, has_physic});
         return { idx, 0 };
     }
 
@@ -233,7 +235,10 @@ public:
     {
         for (size_t ia = 0, ib = 1; ia < slots_.size(); ia++)
         for (ib = ia + 1; ib < slots_.size(); ib++) {
-            if (!(slots_[ia].occupied && slots_[ib].occupied)) continue;
+            if (!(slots_[ia].occupied && slots_[ib].occupied))
+                continue;
+            if (slots_[ia].ignoredObjects.contains(ib) || slots_[ib].ignoredObjects.contains(ia))
+                continue;
 
             SceneObject& a = *slots_[ia].obj;
             SceneObject& b = *slots_[ib].obj;
@@ -332,7 +337,10 @@ public:
                 case events::addObjectEvent:
                 {
                     auto* addObjectEventPtr = static_cast<events::AddObject*>(eventSlot.eventPtr.get());
-                    add(std::move(addObjectEventPtr->objectPtr));
+                    ObjectHandle handle = add(std::move(addObjectEventPtr->objectPtr));
+                    slots_[handle.index].ignoredObjects =
+                        std::set(addObjectEventPtr->ignoredObjects.begin(), addObjectEventPtr->ignoredObjects.end());
+                    break;
                 }
             }
         }

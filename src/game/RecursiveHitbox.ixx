@@ -374,7 +374,10 @@ public:
 
         const float rel_angle = angA - angB;
 
-        if (collision_math::rects_intersect(posA - posB, rel_angle, sizeA, sizeB)) {
+        // ИСПРАВЛЕНИЕ 1: Переводим вектор из мирового пространства в локальное пространство B
+        glm::vec2 center_a_local_b = collision_math::rotate_vec(posA - posB, -angB);
+
+        if (collision_math::rects_intersect(center_a_local_b, rel_angle, sizeA, sizeB)) {
             int mask = first.hitbox.fully_solid_ << 1 | second.hitbox.fully_solid_;
 
             auto add_contact = [&](const glm::vec2& local_contact_pos, const glm::vec2& center, float angle) {
@@ -429,13 +432,15 @@ public:
                 }
                 case 0b11:
                 {
-                    glm::vec2 local_contact = collision_math::get_contact_point(posA - posB, rel_angle, sizeA, sizeB);
-                    add_contact(local_contact, posA, angA);
+                    // Передаем уже корректный center_a_local_b
+                    glm::vec2 local_contact = collision_math::get_contact_point(center_a_local_b, rel_angle, sizeA, sizeB);
+
+                    // ИСПРАВЛЕНИЕ 2: Точка в локальном пространстве B, поэтому используем posB и angB
+                    add_contact(local_contact, posB, angB);
 
 #ifdef DEBUG_COLLISION
-                    // Рисуем залитые прямоугольники для обоих участников коллизии
-                    drawRect(posA, angA, sizeA, 0, IM_COL32(255, 0, 0, 100)); // Красный полупрозрачный
-                    drawRect(posB, angB, sizeB, 0, IM_COL32(0, 0, 255, 100)); // Синий полупрозрачный
+                    drawRect(posA, angA, sizeA, 0, IM_COL32(255, 0, 0, 100));
+                    drawRect(posB, angB, sizeB, 0, IM_COL32(0, 0, 255, 100));
 #endif
                     break;
                 }
