@@ -31,10 +31,10 @@ import additional_math;
 // ---------------------------------------------------------------------------
 export enum class VoxelStatus : std::uint8_t
 {
-    Absent   = 0,  // пустая ячейка (прозрачный пиксель или разрушена)
+    Absent   = 0,  // пустая ячейка
     Active   = 1,  // живой воксель
     Boundary = 2,  // граничный воксель
-    Disconnected = 3,
+    Destroyed = 3,
 };
 
 // ---------------------------------------------------------------------------
@@ -68,8 +68,8 @@ public:
 private:
     voxel_object_params params_;
     uv_rect local_UV_;
-    size_t grid_transform_;
-    size_t mass_center_;
+    size_t grid_center_transform_;
+    size_t mass_center_transform_;
     size_t parent_texture_;
     std::unique_ptr<RecursiveHitbox> hitbox_;
 
@@ -116,11 +116,13 @@ public:
         , local_UV_(local_UV)
         , parent_texture_(texture_id)
     {
-        grid_transform_ = repo_.createTransform();
-        //mass_center_ = repo_.createTransform();
-        TransformNode& transform = repo_.getTransform(grid_transform_);
-        transform.position = params_.origin;
-        transform.angle = params_.angle;
+        grid_center_transform_ = repo_.createTransform();
+        mass_center_transform_ = repo_.createTransform();
+        TransformNode& mass_transform = repo_.getTransform(mass_center_transform_);
+        TransformNode& grid_transform = repo_.getTransform(grid_center_transform_);
+        grid_transform.parentIndex = mass_center_transform_;
+        mass_transform.position = params_.origin;
+        mass_transform.angle = params_.angle;
 
         if (chipped) {
             cols_ = tex_.width;
@@ -203,7 +205,7 @@ public:
             for (int c = start_col; c < end_col; ++c)
             {
                 Voxel& vx = voxels_[static_cast<size_t>(r * cols_ + c)];
-                if (vx.status == VoxelStatus::Absent) continue;
+                if (!vx.is_alive()) continue;
 
                 if (radius > 0.f)
                 {
@@ -316,7 +318,7 @@ public:
         {
             if (comp_id == main_comp) continue;
 
-            glm::vec2 frag_center = global_position();
+            glm::vec2 frag_center = global_position() + math::rotate_vec2(repo_.getTransform(grid_center_transform_).position, global_rotation());
             const float& global_angle = get_angle();
 
             // Создаём пустой объект с теми же параметрами (build_voxels не вызывается)
@@ -346,7 +348,7 @@ public:
                 Voxel& dst = frag.voxels_[static_cast<size_t>(i)];
 
                 dst = src;           // копируем данные вокселя (center, hp, spriteIdx)
-                repo_.dataFromSpriteIdx(dst.spriteIdx).transformIdx = frag.grid_transform_;
+                repo_.dataFromSpriteIdx(dst.spriteIdx).transformIdx = frag.grid_center_transform_;
 
                 // Забираем спрайт из текущего объекта
                 src.spriteIdx = ~size_t{0};
@@ -391,15 +393,15 @@ public:
 
     const float& get_angle() const override
     {
-        return repo_.getTransform(grid_transform_).angle;
+        return repo_.getTransform(mass_center_transform_).angle;
     }
     void add_angle(const float& dAngle) override
     {
-        repo_.getTransform(grid_transform_).angle += dAngle;
+        repo_.getTransform(mass_center_transform_).angle += dAngle;
     }
     void set_angle(const float& angle) override
     {
-        repo_.getTransform(grid_transform_).angle = angle;
+        repo_.getTransform(mass_center_transform_).angle = angle;
     }
 
     void set_global_angle(const float& angle)
@@ -411,15 +413,15 @@ public:
 
     void add_position(const glm::vec2& pos) override
     {
-        repo_.getTransform(grid_transform_).position += pos;
+        repo_.getTransform(mass_center_transform_).position += pos;
     }
     void set_position(const glm::vec2& pos) override
     {
-        repo_.getTransform(grid_transform_).position = pos;
+        repo_.getTransform(mass_center_transform_).position = pos;
     }
     const glm::vec2& get_position() const override
     {
-        return repo_.getTransform(grid_transform_).position;
+        return repo_.getTransform(mass_center_transform_).position;
     }
 
     const float& get_angular_velocity() const override
@@ -559,32 +561,32 @@ public:
 
     int get_local_transform() const
     {
-        return grid_transform_;
+        return mass_center_transform_;
     }
 
     void set_parent_transform(int index)
     {
-        repo_.getTransform(grid_transform_).parentIndex = index;
+        repo_.getTransform(mass_center_transform_).parentIndex = index;
     }
 
     int get_parent_transform()
     {
-        return repo_.getTransform(grid_transform_).parentIndex;
+        return repo_.getTransform(grid_center_transform_).parentIndex;
     }
 
     glm::vec2 global_position()
     {
-        return repo_.getGlobalPosition(grid_transform_);
+        return repo_.getGlobalPosition(mass_center_transform_);
     }
 
     float global_rotation()
     {
-        return repo_.getGlobalRotation(grid_transform_);
+        return repo_.getGlobalRotation(mass_center_transform_);
     }
 
     float local_rotation()
     {
-        return repo_.getTransform(grid_transform_).angle;
+        return repo_.getTransform(mass_center_transform_).angle;
     }
 
 #ifdef DEBUG_COLLISION
@@ -623,6 +625,7 @@ private:
              (bound.x1 * params_.cell_size + size.x * 0.5f) - cols_ * 0.5f * params_.cell_size,
              (bound.y1 * params_.cell_size + size.y * 0.5f) - rows_ * 0.5f * params_.cell_size
             };
+        hitbox_shift += repo_.getTransform(grid_center_transform_).position;
 
         hitbox_ = std::make_unique<RecursiveHitbox>(
         bound,
@@ -709,7 +712,7 @@ private:
                 sd.uvRect.v0  = local_UV_.v0 + static_cast<float>(row) * pixel_v;
                 sd.uvRect.u1  = sd.uvRect.u0 + pixel_u;
                 sd.uvRect.v1  = sd.uvRect.v0 + pixel_v;
-                sd.transformIdx = grid_transform_;
+                sd.transformIdx = grid_center_transform_;
 
                 vx.spriteIdx = repo_.addSprite(sd, params_.depth);
                 repo_[vx.spriteIdx].textureDesc = tex_desc;
@@ -733,25 +736,20 @@ private:
         new_mass_center /= alive_num;
         mass_ = alive_num;
 
-        // glm::vec2 mass_center_shift = new_mass_center - mass_center_;
+        TransformNode& mass_center = repo_.getTransform(mass_center_transform_);
+        TransformNode& grid_center = repo_.getTransform(grid_center_transform_);
 
-        // Сдвигаем локальные центры вокселей в систему центра масс
-        // for (auto& voxel : voxels_) {
-        //     voxel.center -= mass_center_shift;
-        //
-        //     if (voxel.is_alive()) {
-        //         auto* data_ptr = repo_.getDataPointer(voxel.spriteIdx);
-        //         data_ptr->position -= mass_center_shift;
-        //     }
-        // }
-        // add_position(math::rotate_vec2(mass_center_shift, get_angle()));
+        glm::vec2 mass_center_shift = new_mass_center + grid_center.position;
 
-        // Момент инерции считается по уже обновлённым voxel.center
+        mass_center.position += math::rotate_vec2(mass_center_shift, get_angle());
+        grid_center.position = -new_mass_center;
+
         inertia_moment_ = 0.f;
         constexpr float self_inertia = 1.f / 12.f * 2.f;
         for (auto& voxel : voxels_) {
             if (!voxel.is_alive()) continue;
-            inertia_moment_ += glm::dot(voxel.center, voxel.center) + self_inertia;
+            glm::vec2 voxel_center = voxel.center + new_mass_center;
+            inertia_moment_ += glm::dot(voxel_center, voxel_center) + self_inertia;
         }
 
         // mass_center_ = new_mass_center;
@@ -766,47 +764,5 @@ private:
             vx.spriteIdx = ~size_t{0};
         }
         vx.status = VoxelStatus::Absent;
-    }
-
-    void update_boundary()
-    {
-        for (int i = 0; i < (cols_ * rows_); ++i) {
-            if (i < cols_ || // верхняя граница
-                (i + 1) % (rows_ + 1) == 0 || // правая граница
-                i % (rows_ + 1) == 0 || // левая граница
-                i < cols_ * (rows_ - 1)) // нижняя граница
-            {
-                if (voxels_[i].is_alive()) {
-                    voxels_[i].status = VoxelStatus::Boundary;
-                }
-                continue;
-            }
-
-            if (voxels_[i].is_alive()) {
-                if (voxels_[i + 1].is_alive() &&
-                    voxels_[i - 1].is_alive() &&
-                    voxels_[i + cols_].is_alive() &&
-                    voxels_[i - cols_].is_alive()
-                ) voxels_[i].status = VoxelStatus::Active;
-                else {
-                    voxels_[i].status = VoxelStatus::Boundary;
-                }
-            }
-        }
-    }
-
-    std::vector<Voxel> get_boundary()
-    {
-        std::vector<Voxel> boundary_voxels;
-        for (const size_t& i : boundary_) {
-            boundary_voxels.push_back(voxels_[i]);
-        }
-        return boundary_voxels;
-    }
-
-    void update_transform()
-    {
-        auto& transform = repo_.getTransform(grid_transform_);
-        transform.position = params_.origin;
     }
 };
