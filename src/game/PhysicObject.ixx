@@ -38,7 +38,11 @@ public:
     virtual const float& get_mass() const = 0;
     virtual const float& get_moment() const = 0;
 
+#ifndef DEBUG_COLLISION
     virtual void update(const float& dt) = 0;
+#else
+    virtual void update(const float& dt, bool debug_draw) = 0;
+#endif
 
     virtual const RecursiveHitbox& get_hitbox() const = 0;
 

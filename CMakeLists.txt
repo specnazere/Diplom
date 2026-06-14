@@ -99,6 +99,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/netcode/Client_scene_sync.ixx
 
         src/misc/Multitype_index_repository.ixx
+        src/misc/Additional_math.ixx
 
         src/Game.ixx
 )

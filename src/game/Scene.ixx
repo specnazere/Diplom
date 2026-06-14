@@ -217,9 +217,13 @@ public:
         for (auto& frag : new_fragments)
             add(std::move(frag));
 
-        for_each([dt](const ObjectHandle& handle, SceneObject& obj)
+        for_each([dt, this](const ObjectHandle& handle, SceneObject& obj)
         {
+#ifndef DEBUG_COLLISION
             obj.update(dt);
+#else
+            obj.update(dt, slots_[handle.index].has_physics);
+#endif
         });
 
         resolveEvents(events);
@@ -302,7 +306,10 @@ public:
 
     void resolveEvents(std::vector<EventSlot>& eventsVector)
     {
-        for (EventSlot& eventSlot : eventsVector ) {
+        std::vector<EventSlot> eventsCopy;
+        eventsCopy.swap(eventsVector);
+
+        for (EventSlot& eventSlot : eventsCopy) {
             switch (eventSlot.eventPtr->type()) {
                 case events::emptyEvent: break;
                 case events::explosionEvent:
@@ -325,29 +332,8 @@ public:
                     auto* addObjectEventPtr = static_cast<events::AddObject*>(eventSlot.eventPtr.get());
                     add(std::move(addObjectEventPtr->objectPtr));
                 }
-                // case events::spawnVoxelObjectEvent:
-                // {
-                //     auto* spawnVoxelObjectEventPtr = static_cast<events::SpawnVoxelObject*>(eventSlot.eventPtr.get());
-                //
-                //     add(std::make_unique<VoxelObject>(
-                //         sprites_repo_,
-                //
-                //     ))
-                //
-                //     break;
-                // }
-                // case events::spawnProjectileEvent:
-                // {
-                //     auto* spawnProjectileEventPtr = static_cast<events::SpawnProjectile*>(eventSlot.eventPtr.get());
-                //     add(std::make_unique<Projectile>(
-                //         repo_,
-                //         ));
-                //
-                //     break;
-                // }
             }
         }
-        eventsVector.clear();
     }
 
     // -----------------------------------------------------------------------

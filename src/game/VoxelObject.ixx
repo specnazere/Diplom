@@ -14,6 +14,8 @@ module;
 #include <cmath>
 #include <memory>
 
+#include "graphics/transform_node.h"
+
 export module voxel_object;
 
 import sprite;
@@ -22,6 +24,7 @@ import texture;
 import atlas;
 import recursive_hitbox;
 import scene_object;
+import additional_math;
 
 // ---------------------------------------------------------------------------
 //  Статусы вокселей
@@ -31,6 +34,7 @@ export enum class VoxelStatus : std::uint8_t
     Absent   = 0,  // пустая ячейка (прозрачный пиксель или разрушена)
     Active   = 1,  // живой воксель
     Boundary = 2,  // граничный воксель
+    Disconnected = 3,
 };
 
 // ---------------------------------------------------------------------------
@@ -52,19 +56,25 @@ export struct Voxel
 export
 class VoxelObject : public SceneObject
 {
+// private:
+//     struct FragmentData()
+//     {
+//
+//     }
+//
 public:
-    static constexpr voxel_object_params standart_params = voxel_object_params(5.f, 1.f, 0.f, 1.f, {0.f, 0.f});
+    static constexpr voxel_object_params standart_params = voxel_object_params(5.f, 1.f, 0.f, 1.f, {0.f, 0.f}, 0.f);
 
 private:
     voxel_object_params params_;
     uv_rect local_UV_;
-    size_t local_transform_;
+    size_t grid_transform_;
+    size_t mass_center_;
     size_t parent_texture_;
     std::unique_ptr<RecursiveHitbox> hitbox_;
 
     float mass_ = 1;
     float inertia_moment_ = 1;
-    glm::vec2 orign_shift_ = {};
 
     std::vector<Voxel>   voxels_;
     std::vector<size_t>  boundary_;
@@ -106,8 +116,11 @@ public:
         , local_UV_(local_UV)
         , parent_texture_(texture_id)
     {
-        local_transform_ = repo_.createTransform();
-        repo_.getTransform(local_transform_).position = params_.origin;
+        grid_transform_ = repo_.createTransform();
+        //mass_center_ = repo_.createTransform();
+        TransformNode& transform = repo_.getTransform(grid_transform_);
+        transform.position = params_.origin;
+        transform.angle = params_.angle;
 
         if (chipped) {
             cols_ = tex_.width;
@@ -163,9 +176,10 @@ public:
 
         float cos_value = cos(grid_angle);
         float sin_value = sin(grid_angle);
-        glm::vec2 grid_center = global_position() - glm::vec2(
-            params_.origin.x * cos_value - params_.origin.y * sin_value,
-            params_.origin.x * sin_value + params_.origin.y * cos_value);
+        glm::vec2 grid_center = global_position();
+        // - glm::vec2(
+        //     mass_center_position_.x * cos_value - mass_center_position_.y * sin_value,
+        //     mass_center_position_.x * sin_value + mass_center_position_.y * cos_value);
 
         glm::vec2 diff = position - grid_center;
 
@@ -207,8 +221,15 @@ public:
             }
         }
 
-        if (changed)
-            build_local_chunks();
+        if (changed) {
+            recalculate_physic();
+
+            std::vector<std::unique_ptr<events::SceneEvent>> events;
+            for (std::unique_ptr<VoxelObject>& fragmentPtr : split_if_disconnected()) {
+                events.emplace_back(std::make_unique<events::AddObject>(std::move(fragmentPtr)));
+            }
+            newEventFunc_(invokeFunctionContext_, events);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -295,23 +316,8 @@ public:
         {
             if (comp_id == main_comp) continue;
 
-            glm::vec4 frag_bounds = {
-                std::numeric_limits<float>::max(),
-                std::numeric_limits<float>::max(),
-                -std::numeric_limits<float>::max(),
-                -std::numeric_limits<float>::max()
-            };
-
-            for (int i = 0; i < total; ++i) {
-                if (component[static_cast<size_t>(i)] != comp_id) continue;
-
-                Voxel& src = voxels_[static_cast<size_t>(i)];
-
-                frag_bounds[0] = std::min(frag_bounds[0], src.center.x);
-                frag_bounds[1] = std::min(frag_bounds[1], src.center.y);
-                frag_bounds[2] = std::max(frag_bounds[2], src.center.x);
-                frag_bounds[3] = std::max(frag_bounds[3], src.center.y);
-            }
+            glm::vec2 frag_center = global_position();
+            const float& global_angle = get_angle();
 
             // Создаём пустой объект с теми же параметрами (build_voxels не вызывается)
             fragments.push_back(std::move(std::make_unique<VoxelObject>(
@@ -324,13 +330,12 @@ public:
                     params_.default_hp,
                     params_.depth,
                     params_.paralax,
-                    {
-                        (frag_bounds[0] + frag_bounds[2]) * 0.5f,
-                        (frag_bounds[1] + frag_bounds[3]) * 0.5f
-                    }
+                    frag_center,
+                    global_angle
                 ),
                 true)));
             VoxelObject& frag = *fragments.back();
+            //frag.recalculate_physic();
 
             // Переносим воксели этого компонента
             for (int i = 0; i < total; ++i)
@@ -341,26 +346,26 @@ public:
                 Voxel& dst = frag.voxels_[static_cast<size_t>(i)];
 
                 dst = src;           // копируем данные вокселя (center, hp, spriteIdx)
-                repo_.dataFromSpriteIdx(dst.spriteIdx).transformIdx = frag.local_transform_;
+                repo_.dataFromSpriteIdx(dst.spriteIdx).transformIdx = frag.grid_transform_;
 
                 // Забираем спрайт из текущего объекта
                 src.spriteIdx = ~size_t{0};
                 src.status    = VoxelStatus::Absent;
             }
 
-            glm::vec2 dOrign = params_.origin - frag.params_.origin;
+            // glm::vec2 dOrign = params_.origin - frag.params_.origin;
 
-            for (Voxel& voxel : frag.voxels_) {
-                voxel.center.x += dOrign.x;
-                voxel.center.y += dOrign.y;
-            }
+            // for (Voxel& voxel : frag.voxels_) {
+            //     voxel.center.x += dOrign.x;
+            //     voxel.center.y += dOrign.y;
+            // }
 
+            frag.recalculate_physic();
             frag.sync_sprites();
-            frag.build_local_chunks();
         }
 
         // После передачи фрагментов пересчитываем чанки текущего объекта
-        build_local_chunks();
+        recalculate_physic();
 
         return fragments;
     }
@@ -386,15 +391,15 @@ public:
 
     const float& get_angle() const override
     {
-        return repo_.getTransform(local_transform_).angle;
+        return repo_.getTransform(grid_transform_).angle;
     }
     void add_angle(const float& dAngle) override
     {
-        repo_.getTransform(local_transform_).angle += dAngle;
+        repo_.getTransform(grid_transform_).angle += dAngle;
     }
     void set_angle(const float& angle) override
     {
-        repo_.getTransform(local_transform_).angle = angle;
+        repo_.getTransform(grid_transform_).angle = angle;
     }
 
     void set_global_angle(const float& angle)
@@ -406,15 +411,15 @@ public:
 
     void add_position(const glm::vec2& pos) override
     {
-        repo_.getTransform(local_transform_).position += pos;
+        repo_.getTransform(grid_transform_).position += pos;
     }
     void set_position(const glm::vec2& pos) override
     {
-        repo_.getTransform(local_transform_).position = pos;
+        repo_.getTransform(grid_transform_).position = pos;
     }
     const glm::vec2& get_position() const override
     {
-        return repo_.getTransform(local_transform_).position;
+        return repo_.getTransform(grid_transform_).position;
     }
 
     const float& get_angular_velocity() const override
@@ -501,7 +506,10 @@ public:
     {
         return RecursiveHitbox::checkCollision(
                 RecursiveHitbox::CollisionCheckerInput(*hitbox_, get_position(), get_angle()),
-                RecursiveHitbox::CollisionCheckerInput(other.get_hitbox(), other.get_position(), other.get_angle())
+                RecursiveHitbox::CollisionCheckerInput(
+                    other.get_hitbox(),
+                    other.get_position(),
+                    other.get_angle())
             );
     }
 
@@ -533,45 +541,54 @@ public:
     //  Удобный метод: проверить коллизию и нанести урон в точках контакта.
     //  Возвращает true если коллизия произошла.
     // -----------------------------------------------------------------------
-
+#ifndef DEBUG_COLLISION
     void update(const float& dt) override
+#else
+    void update(const float& dt, bool debug_draw) override
+#endif
     {
         add_angle(angular_velocity_ * dt);
         add_position(velocity_ * dt);
+
+#ifdef DEBUG_COLLISION
+        if (debug_draw) {
+            DebugDraw();
+        }
+#endif
     }
 
     int get_local_transform() const
     {
-        return local_transform_;
+        return grid_transform_;
     }
 
     void set_parent_transform(int index)
     {
-        repo_.getTransform(local_transform_).parentIndex = index;
+        repo_.getTransform(grid_transform_).parentIndex = index;
     }
 
     int get_parent_transform()
     {
-        return repo_.getTransform(local_transform_).parentIndex;
+        return repo_.getTransform(grid_transform_).parentIndex;
     }
 
     glm::vec2 global_position()
     {
-        return repo_.getGlobalPosition(local_transform_);
+        return repo_.getGlobalPosition(grid_transform_);
     }
 
     float global_rotation()
     {
-        return repo_.getGlobalRotation(local_transform_);
+        return repo_.getGlobalRotation(grid_transform_);
     }
 
     float local_rotation()
     {
-        return repo_.getTransform(local_transform_).angle;
+        return repo_.getTransform(grid_transform_).angle;
     }
 
 #ifdef DEBUG_COLLISION
-    void DebugDraw() const
+    void DebugDraw() const override
     {
         hitbox_->debugDraw(get_position(), get_angle());
     }
@@ -580,11 +597,38 @@ public:
 private:
     void build_local_chunks()
     {
+        GridBoundary bound = {
+            std::numeric_limits<size_t>::max(),
+            std::numeric_limits<size_t>::max(),
+            std::numeric_limits<size_t>::min(),
+            std::numeric_limits<size_t>::min()
+        };
+
+        for (size_t x = 0; x < cols_; x++)
+        for (size_t y = 0; y < rows_; y++) {
+            if (voxel_at(x, y)->is_alive()) {
+                bound.x1 = std::min(bound.x1, x);
+                bound.y1 = std::min(bound.y1, y);
+                bound.x2 = std::max(bound.x2, x + 1);
+                bound.y2 = std::max(bound.y2, y + 1);
+            }
+        }
+
+        glm::vec2 size = {
+            (bound.x2 - bound.x1) * params_.cell_size,
+            (bound.y2 - bound.y1) * params_.cell_size
+            };
+
+        glm::vec2 hitbox_shift = {
+             (bound.x1 * params_.cell_size + size.x * 0.5f) - cols_ * 0.5f * params_.cell_size,
+             (bound.y1 * params_.cell_size + size.y * 0.5f) - rows_ * 0.5f * params_.cell_size
+            };
+
         hitbox_ = std::make_unique<RecursiveHitbox>(
-        GridBoundary(0, 0, static_cast<size_t>(cols_), static_cast<size_t>(rows_)),
+        bound,
         3,
-        glm::vec2(cols_ * params_.cell_size, rows_ * params_.cell_size),
-        -orign_shift_,
+        size,
+        hitbox_shift,
         [this](const GridBoundary& boundary)
             {
                 for (int x = boundary.x1; x < boundary.x2; x++) {
@@ -601,26 +645,26 @@ private:
 
     void build_voxels(unsigned char alpha_threshold)
     {
-        int up = std::numeric_limits<int>::max();
-        int down = std::numeric_limits<int>::min();
-        int left = std::numeric_limits<int>::max();
-        int right = std::numeric_limits<int>::min();
+        // int up = std::numeric_limits<int>::max();
+        // int down = std::numeric_limits<int>::min();
+        // int left = std::numeric_limits<int>::max();
+        // int right = std::numeric_limits<int>::min();
+        //
+        // for (int x = 0; x < tex_.width; x++) {
+        //     for (int y = 0; y < tex_.height; y++) {
+        //
+        //         const size_t pixel_idx = static_cast<size_t>(y * tex_.width + x);
+        //         if (tex_.colorData[pixel_idx * 4 + 3] <= alpha_threshold) continue;
+        //
+        //         up = std::min(up, y);
+        //         down = std::max(down, y);
+        //         left = std::min(left, x);
+        //         right = std::max(right, x);
+        //     }
+        // }
 
-        for (int x = 0; x < tex_.width; x++) {
-            for (int y = 0; y < tex_.height; y++) {
-
-                const size_t pixel_idx = static_cast<size_t>(y * tex_.width + x);
-                if (tex_.colorData[pixel_idx * 4 + 3] <= alpha_threshold) continue;
-
-                up = std::min(up, y);
-                down = std::max(down, y);
-                left = std::min(left, x);
-                right = std::max(right, x);
-            }
-        }
-
-        cols_ = right - left + 1;
-        rows_ = down - up + 1;
+        cols_ = tex_.width;
+        rows_ = tex_.height;
 
         if (cols_ <= 0 || rows_ <= 0) return;
 
@@ -648,7 +692,7 @@ private:
                 // Проверяем альфа-канал (RGBA: 4 байта на пиксель, alpha = байт [3])
                 if (tex_.colorData != nullptr)
                 {
-                    const size_t pixel_idx = static_cast<size_t>((row + up) * tex_.width + (col + left));
+                    const size_t pixel_idx = static_cast<size_t>(row * tex_.width + col);
                     if (tex_.colorData[pixel_idx * 4 + 3] <= alpha_threshold) continue;
                 }
 
@@ -661,11 +705,11 @@ private:
                 sd.depth      = params_.depth;
                 sd.position   = vx.center;
                 sd.paralax    = params_.paralax;
-                sd.uvRect.u0  = local_UV_.u0 + static_cast<float>(col + left) * pixel_u;
-                sd.uvRect.v0  = local_UV_.v0 + static_cast<float>(row + up) * pixel_v;
+                sd.uvRect.u0  = local_UV_.u0 + static_cast<float>(col) * pixel_u;
+                sd.uvRect.v0  = local_UV_.v0 + static_cast<float>(row) * pixel_v;
                 sd.uvRect.u1  = sd.uvRect.u0 + pixel_u;
                 sd.uvRect.v1  = sd.uvRect.v0 + pixel_v;
-                sd.transformIdx = local_transform_;
+                sd.transformIdx = grid_transform_;
 
                 vx.spriteIdx = repo_.addSprite(sd, params_.depth);
                 repo_[vx.spriteIdx].textureDesc = tex_desc;
@@ -675,32 +719,32 @@ private:
 
     void recalculate_physic()
     {
-        orign_shift_ = {0.f, 0.f};
+        glm::vec2 new_mass_center = {0.f, 0.f};
         float alive_num = 0.f;
 
         for (auto& voxel : voxels_) {
             if (!voxel.is_alive()) continue;
-            orign_shift_ += voxel.center;
+            new_mass_center += voxel.center;
             alive_num += 1.f;
         }
 
         if (alive_num < 1.f) return;
 
-        orign_shift_ /= alive_num;
+        new_mass_center /= alive_num;
         mass_ = alive_num;
 
+        // glm::vec2 mass_center_shift = new_mass_center - mass_center_;
+
         // Сдвигаем локальные центры вокселей в систему центра масс
-        for (auto& voxel : voxels_) {
-            voxel.center -= orign_shift_;  // ← был += (неверный знак) и закомментировано
-
-            if (voxel.is_alive()) {
-                auto* data_ptr = repo_.getDataPointer(voxel.spriteIdx);
-                data_ptr->position -= orign_shift_;
-            }
-        }
-
-        // Смещаем мировую позицию трансформа на ту же величину
-        params_.origin = orign_shift_;
+        // for (auto& voxel : voxels_) {
+        //     voxel.center -= mass_center_shift;
+        //
+        //     if (voxel.is_alive()) {
+        //         auto* data_ptr = repo_.getDataPointer(voxel.spriteIdx);
+        //         data_ptr->position -= mass_center_shift;
+        //     }
+        // }
+        // add_position(math::rotate_vec2(mass_center_shift, get_angle()));
 
         // Момент инерции считается по уже обновлённым voxel.center
         inertia_moment_ = 0.f;
@@ -710,11 +754,7 @@ private:
             inertia_moment_ += glm::dot(voxel.center, voxel.center) + self_inertia;
         }
 
-        for (Voxel& voxel : voxels_) {
-            voxel.center += orign_shift_;
-        }
-
-        add_position(orign_shift_);
+        // mass_center_ = new_mass_center;
         build_local_chunks();
     }
 
@@ -766,7 +806,7 @@ private:
 
     void update_transform()
     {
-        auto& transform = repo_.getTransform(local_transform_);
+        auto& transform = repo_.getTransform(grid_transform_);
         transform.position = params_.origin;
     }
 };

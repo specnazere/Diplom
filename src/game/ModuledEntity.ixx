@@ -166,11 +166,7 @@ public:
             unrotated_acceleration.y * cosA + unrotated_acceleration.x * sinA});
         object_->add_angular_velocity(stats_.torque / object_->get_moment() * dt);
 
-        object_->update(dt);
-
-#ifdef DEBUG_COLLISION
-        object_->DebugDraw();
-#endif
+        //object_->update(dt);
     }
 
     // Нанесение урона с автоматическим обновлением модулей

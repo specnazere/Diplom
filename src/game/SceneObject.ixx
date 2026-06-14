@@ -44,6 +44,10 @@ public:
     virtual void setupEventInvokingFunction(void* context, EventInvokingFunction* func) = 0;
     virtual void invokeEventsFromThis(std::vector<std::unique_ptr<events::SceneEvent>>) = 0;
     virtual const size_t& get_parent_texture() const = 0;
+
+#ifdef DEBUG_COLLISION
+    virtual void DebugDraw() const = 0;
+#endif
 };
 
 export

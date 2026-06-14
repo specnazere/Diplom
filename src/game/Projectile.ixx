@@ -158,11 +158,28 @@ public:
     }
 
 
+#ifndef DEBUG_COLLISION
     void update(const float& dt) override
+#else
+    void update(const float& dt, bool debug_draw) override
+#endif
     {
         add_position(physic_.speed.linearVelocity * dt);
         add_angle(physic_.speed.angularVelocity * dt);
+
+#ifdef DEBUG_COLLISION
+        if (debug_draw) {
+            DebugDraw();
+        }
+#endif
     }
+
+#ifdef DEBUG_COLLISION
+    void DebugDraw() const override
+    {
+        hitbox_.debugDraw(get_position(), get_angle());
+    }
+#endif
 
     void apply_impulse_at(const glm::vec2& impulse, const glm::vec2& world_pos) override {
         // 1. Изменение линейной скорости: v += J / m

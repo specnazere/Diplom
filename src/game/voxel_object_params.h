@@ -12,6 +12,7 @@ struct voxel_object_params
     float depth;
     float paralax;
     glm::vec2 origin;
+    float angle;
 };
 
 #endif //VOXEL_OBJECT_PARAMS_H
