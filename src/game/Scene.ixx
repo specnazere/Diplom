@@ -1,6 +1,6 @@
 module;
 
-#include "glm/glm.hpp"
+#include <glm/glm.hpp>
 
 #include "explosion_data.h"
 

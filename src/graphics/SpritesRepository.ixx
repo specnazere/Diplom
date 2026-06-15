@@ -5,8 +5,6 @@ module;
 
 #include "glm/glm.hpp"
 
-#include "transform_node.h"
-
 #include <vector>
 #include <queue>
 #include <cmath>
@@ -14,8 +12,9 @@ module;
 
 export module sprite_repository;
 
-import atlas;
-import sprite;
+export import atlas;
+export import sprite;
+export import transform_node;
 
 export
 class SpritesRepository
@@ -161,7 +160,7 @@ public:
 
     // --- Управление Спрайтами ---
 
-    size_t addSprite(const SpriteData& data, float depth, size_t transformIdx = ~size_t{0})
+    size_t addSprite(const SpriteData& data, size_t transformIdx = ~size_t{0})
     {
         // 1. Добавляем данные в плотный массив
         const size_t new_data_idx = sprite_data_.size();
@@ -181,7 +180,6 @@ public:
 
         Sprite& s = sprites_[sprite_idx];
         s.dataIdx     = new_data_idx;
-        s.depth       = depth;
         s.transformIdx = transformIdx;
         // s.active больше нет. Валидность определяется наличием dataIdx != ~0
 
@@ -287,4 +285,17 @@ public:
     Sprite& operator[](size_t index) { return sprites_[index]; }
 
     const Sprite& operator[](size_t index) const { return sprites_[index]; }
+
+    // --- static part
+
+    inline static SpritesRepository* active_repo;
+
+    static SpritesRepository& get_active()
+    {
+        return *active_repo;
+    }
+    static void set_active(SpritesRepository* repo)
+    {
+        active_repo = repo;
+    }
 };

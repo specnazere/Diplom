@@ -114,6 +114,7 @@ void init_systems() {
 
     global_repo = std::make_unique<SpritesRepository>();
     global_repo->atlas = std::move(*atlas);
+    SpritesRepository::set_active(global_repo.get());
 
     Renderer::init(window, global_repo.get());
 
@@ -169,11 +170,6 @@ std::vector<std::unique_ptr<ModuledEntity>> create_scene_entities(Scene& scene)
         }
     }
 
-    auto turret = std::make_unique<VoxelObject>(
-        *global_repo,
-        turret_texture, turret_texture_id, turret_texture_uv,
-        voxel_object_params {5.f, 5.f, 0.1f, 1.f, {0.f, 0.f}});
-
     ship1->add_module(std::make_unique<VoxelModuleUniversalEngine>(10, glm::vec2(0.f), 0.f, engine_coords, 300000.f, 30000000.f));
 
     ProjectileMakeupData proj{
@@ -190,15 +186,24 @@ std::vector<std::unique_ptr<ModuledEntity>> create_scene_entities(Scene& scene)
     ship1->add_module(std::move(std::make_unique<VoxelModuleTurret>(
         15,
         glm::vec2(0.f),
+        glm::vec2(-50.f, 0.f),
         0.f,
         turret_coords,
-        *turret.get(),
+        global_repo->addSprite(SpriteData{
+            turret_texture.width * 5.f,
+            turret_texture.height * 5.f,
+            0.f,
+            {0.f, 0.f},
+            1.f,
+            0.1f,
+            turret_texture_uv,
+            ~0u
+        }),
         10.f,
-        ship1->get_object().get_local_transform(),
+        ship1->get_object().get_grid_transform(),
         0.25f,
         proj
         )));
-    scene.add(std::move(turret), false);
 
     scene.add(std::unique_ptr<VoxelObject>(&ship1->get_object())); // Scene должен хранить unique_ptr<DestructibleEntity> или базовый класс
     // Примечание: Если Scene хранит только DestructibleObject*, нужно будет изменить Scene или хранить Entity отдельно.
@@ -359,6 +364,7 @@ GameState run_singleplayer() {
             return GameState::Menu;
         }
     }
+
     return GameState::Exit;
 }
 

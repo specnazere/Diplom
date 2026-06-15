@@ -75,6 +75,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/graphics/Resources.ixx
         src/graphics/Locale.ixx
         src/graphics/SpritesRepository.ixx
+        src/graphics/TransformNode.ixx
 
         src/game/Spaceship.ixx
         src/game/Destruction.ixx

@@ -11,7 +11,6 @@ module;
 #include "glm/gtc/type_ptr.hpp"
 
 #include "primitives.h"
-#include "transform_node.h"
 
 #include <cassert>
 #include <stdexcept>
@@ -25,6 +24,7 @@ import shader;
 import sprite;
 import sprite_repository;
 import resources;
+import transform_node;
 
 #define BUFFER_OVERSIZE 50
 #define DEBUG_WIREFRAME
@@ -376,12 +376,6 @@ public:
     {
         prepareConsts();
         renderSprites(time);
-    }
-
-    static void register_sprite(const SpriteData& data, float depth, size_t texture_desc)
-    {
-        assert(repo_ != nullptr && "Renderer not initialized with a SpritesRepository");
-        repo_->addSprite(data, depth);
     }
 
     static void remove_sprite(int sprite_idx)

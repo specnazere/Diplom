@@ -1,16 +1,16 @@
 //
 // Created by A on 10.06.2026.
 //
+module;
 
-#ifndef TRANSFORM_NODE_H
-#define TRANSFORM_NODE_H
+#include <glm/fwd.hpp>
+#include <glm/vec2.hpp>
 
-#include <glm/glm.hpp>
+export module transform_node;
 
+export
 struct TransformNode {
     glm::vec2 position = glm::vec2(0, 0);
     glm::float32 angle = 0.0f;
     int parentIndex = -1;
 };
-
-#endif //TRANSFORM_NODE_H

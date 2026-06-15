@@ -14,8 +14,6 @@ module;
 #include <cmath>
 #include <memory>
 
-#include "graphics/transform_node.h"
-
 export module voxel_object;
 
 import sprite;
@@ -25,6 +23,7 @@ import atlas;
 import recursive_hitbox;
 import scene_object;
 import additional_math;
+import transform_node;
 
 // ---------------------------------------------------------------------------
 //  Статусы вокселей
@@ -632,7 +631,12 @@ public:
 #endif
     }
 
-    int get_local_transform() const
+    int get_grid_transform() const
+    {
+        return grid_center_transform_;
+    }
+
+    int get_mass_transform() const
     {
         return mass_center_transform_;
     }
@@ -792,7 +796,7 @@ private:
                 sd.uvRect.v1  = sd.uvRect.v0 + pixel_v;
                 sd.transformIdx = grid_center_transform_;
 
-                vx.spriteIdx = repo_.addSprite(sd, params_.depth);
+                vx.spriteIdx = repo_.addSprite(sd);
                 repo_[vx.spriteIdx].textureDesc = tex_desc;
             }
         }

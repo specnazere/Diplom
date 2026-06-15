@@ -12,9 +12,12 @@ module;
 #include <glm/trigonometric.hpp>
 #include <glm/ext/scalar_constants.hpp>
 
-import voxel_object;
 
 export module voxel_module;
+
+import voxel_object;
+import sprite_repository;
+import transform_node;
 
 export
 class VoxelModule
@@ -109,7 +112,8 @@ export
 class VoxelModuleTurret : public VoxelModule
 {
 private:
-    VoxelObject& turret_object_;
+    size_t turret_sprite_;
+    size_t mount_transform_;
     ProjectileMakeupData projectile_data_;
     float cooldown_;
     float timer_ = 0.f;
@@ -119,30 +123,35 @@ public:
 
     VoxelModuleTurret(
         const int& priority,
-        const glm::vec2& center,
+        const glm::vec2& position,
+        const glm::vec2& mount,
         const float& critical_integrity,
         const std::vector<std::pair<int, int>>& coords,
-        VoxelObject& object,
+        const size_t& turret_sprite,
         const float& turn_speed,
         const int& parent_transform,
         const float& cooldown,
         const ProjectileMakeupData& projectile_data)
-        : VoxelModule(priority, center, critical_integrity, coords)
-        , turret_object_(object)
+        : VoxelModule(priority, position, critical_integrity, coords)
+        , turret_sprite_(turret_sprite)
         , turn_speed(turn_speed)
         , cooldown_(cooldown)
         , projectile_data_(projectile_data)
     {
-        turret_object_.set_parent_transform(parent_transform);
+        mount_transform_ = SpritesRepository::get_active().createTransform();
+        SpriteData& sprite_data = *SpritesRepository::get_active().getDataPointer(turret_sprite_);
+        sprite_data.transformIdx = mount_transform_;
+        sprite_data.position = mount;
+        SpritesRepository::get_active().getTransform(mount_transform_).parentIndex = parent_transform;
     }
 
     void apply_actions(actions& actions) override
     {
         actions.target.emplace_back([this](const glm::vec2& target)
         {
-            glm::vec2 direction = turret_object_.global_position() - target;
+            glm::vec2 direction = globalPosition() - target;
             float angle = std::atan2(direction.y, direction.x);
-            turret_object_.set_global_angle(angle);
+            setGlobalRotation(angle);
         });
         actions.primaryWeapon.emplace_back([this](const float& dt)
         {
@@ -152,7 +161,7 @@ public:
                 timer_ = cooldown_;
                 ProjectileMakeupData new_projectile_data = projectile_data_;
 
-                float angle = turret_object_.global_rotation() + glm::pi<float>();
+                float angle = globalRotation() + glm::pi<float>();
                 float cosA = std::cosf(angle);
                 float sinA = std::sinf(angle);
                 float& velX = new_projectile_data.velocity.x;
@@ -161,7 +170,7 @@ public:
                     velX * cosA - velY * sinA,
                     velX * sinA + velY * cosA};
 
-                glm::vec2 turretPosition = turret_object_.global_position();
+                glm::vec2 turretPosition = globalPosition();
                 float& localPosX = new_projectile_data.position.x;
                 float& localPosY = new_projectile_data.position.y;
                 new_projectile_data.position = {
@@ -175,5 +184,24 @@ public:
                 return std::optional<ProjectileMakeupData>();
             }
         });
+    }
+
+private:
+    inline TransformNode& turretMountData()
+    {
+        return SpritesRepository::get_active().getTransform(mount_transform_);
+    }
+    inline glm::vec2 globalPosition()
+    {
+        return SpritesRepository::get_active().getGlobalPosition(mount_transform_);
+    }
+    inline float globalRotation()
+    {
+        return SpritesRepository::get_active().getGlobalRotation(mount_transform_);
+    }
+    inline void setGlobalRotation(const float& rotation)
+    {
+        TransformNode& mountData = turretMountData();
+        mountData.angle = rotation;
     }
 };

@@ -71,7 +71,7 @@ public:
         sd.uvRect     = data.local_UV;
         sd.transformIdx = ~0u;
 
-        sprite_ = repo_.addSprite(sd, sd.depth);
+        sprite_ = repo_.addSprite(sd);
         Projectile::set_velocity(data.velocity);
         Projectile::set_position(data.position);
     }
