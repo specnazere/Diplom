@@ -20,9 +20,9 @@ module;
 #include <cstring>
 #include <glm/ext/matrix_projection.hpp>
 
-#include "game/explosion_data.h"
-#include "game/physic_parameters.h"
-#include "game/voxel_object_params.h"
+#include "action_game/explosion_data.h"
+#include "action_game/physic_parameters.h"
+#include "action_game/voxel_object_params.h"
 #include "graphics/uv_rect.h"
 
 export module game;
@@ -576,6 +576,10 @@ GameState run_client() {
     sync_thread.join();
 
     return GameState::Exit;
+}
+
+module_view()
+{
 }
 
 // --- State: Scene Dispatcher ---
