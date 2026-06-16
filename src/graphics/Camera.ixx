@@ -5,9 +5,11 @@
 module;
 
 #include <GLFW/glfw3.h>
+#include <cmath>
 
 #include "glm/fwd.hpp"
 #include "glm/gtc/type_ptr.hpp"
+#include "glm/gtc/matrix_transform.hpp"
 
 export module camera;
 
@@ -18,8 +20,9 @@ private:
     static inline float scale_ = 1;
     static inline float pos_x_ = 0;
     static inline float pos_y_ = 0;
+    static inline float angle_ = 0; // в радианах
 
-    static inline glm::mat4 view_ = 0;
+    static inline glm::mat4 view_ = 1;
 
     static inline int frame_width_ = 100;
     static inline int frame_height_ = 100;
@@ -32,8 +35,10 @@ private:
             frame_height_ * -scale_ / 2,
             frame_height_ * scale_ / 2);
 
-        view_[3][0] = pos_x_;
-        view_[3][1] = pos_y_;
+        // Смещение и поворот
+        glm::mat4 transform = glm::translate(glm::mat4(1), glm::vec3(-pos_x_, -pos_y_, 0));
+
+        view_ *= transform;
     }
 
 public:
@@ -47,6 +52,7 @@ public:
         scale_ = 1;
         pos_x_ = 0;
         pos_y_ = 0;
+        angle_ = 0;
         reload_view();
     }
 

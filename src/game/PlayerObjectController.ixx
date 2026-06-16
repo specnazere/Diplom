@@ -53,9 +53,11 @@ public:
         if (input.left)  signal += signals::leftSignal;
         if (input.rotate_right) signal += signals::yawLeftSignal;
         if (input.rotate_left)  signal += signals::yawRightSignal;
-        if (input.fire)
-            signal += signals::primaryWeaponSignal;
+        if (input.fire) signal += signals::primaryWeaponSignal;
 
         object_.target = input.globalCursorPosition;
+
+        glm::vec2 object_world_pos = object_.get_object().global_position();
+        camera::set_pos(object_world_pos.x, object_world_pos.y);
     }
 };

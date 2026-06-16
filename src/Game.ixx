@@ -345,7 +345,6 @@ GameState run_singleplayer() {
         glfwPollEvents();
         Renderer::renderAll(0);
 
-        // Отладочная отрисовка модулей (опционально)
         entities[0]->update(dt);
         entities[1]->update(dt);
 
