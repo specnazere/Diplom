@@ -27,6 +27,8 @@ module;
 
 export module game;
 
+import additional_math;
+
 import renderer;
 import resources;
 import sprite_repository;
@@ -129,12 +131,8 @@ void init_systems() {
     glfwSetScrollCallback(window, camera::scroll_callback);
 }
 
-// --- Helper: Create Scene Objects ---
-// Возвращает указатель на DestructibleEntity для управления
-std::vector<std::unique_ptr<ModuledEntity>> create_scene_entities(Scene& scene)
+std::unique_ptr<ModuledEntity> spawn_enemy(Scene& scene, const glm::vec2& pos)
 {
-    std::vector<std::unique_ptr<ModuledEntity>> entities;
-
     const auto& spaceship_texture = res.texturesRepo["spaceship"].object;
     const size_t spaceship_texture_id = res.texturesRepo["spaceship"].iDesc;
     const uv_rect spaceship_texture_uv = global_repo->atlas.get_uv(spaceship_texture_id);
@@ -143,11 +141,10 @@ std::vector<std::unique_ptr<ModuledEntity>> create_scene_entities(Scene& scene)
     const size_t turret_texture_id = res.texturesRepo["turret"].iDesc;
     const uv_rect turret_texture_uv = global_repo->atlas.get_uv(turret_texture_id);
 
-    // Создаем первый корабль
-    auto ship1 = std::make_unique<ModuledEntity>(
+    auto enemy = std::make_unique<ModuledEntity>(
         *global_repo,
         spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
-        voxel_object_params {5.f, 5.f, 0.f, 1.f, {0.f, -200.f}} // Cell size 5, Origin y=-200
+        voxel_object_params {5.f, 5.f, 0.f, 1.f, pos} // Cell size 5, Origin y=-200
     );
 
     // 2. Двигатель (привязан к нижней части корабля)
@@ -172,20 +169,20 @@ std::vector<std::unique_ptr<ModuledEntity>> create_scene_entities(Scene& scene)
         }
     }
 
-    ship1->add_module(std::make_unique<VoxelModuleUniversalEngine>(10, glm::vec2(0.f), 0.f, engine_coords, 300000.f, 30000000.f));
+    enemy->add_module(std::make_unique<VoxelModuleUniversalEngine>(10, glm::vec2(0.f), 0.f, engine_coords, 1000000.f, 100000000.f));
 
     ProjectileMakeupData proj{
-            spaceship_texture_id,
-            spaceship_texture_uv,
-            kinetic_parameters (10.f, 100.f),
-            glm::vec2(10.f, 10.f),
-            explosion_data(50.f, 100.f, 10000.f),
-            500.f,
-            glm::vec2(150.f, 0.f),
-            glm::vec2(1000.f, 0.f)
-        };
+        spaceship_texture_id,
+        spaceship_texture_uv,
+        kinetic_parameters (10.f, 100.f),
+        glm::vec2(10.f, 10.f),
+        explosion_data(50.f, 100.f, 10000.f),
+        500.f,
+        glm::vec2(150.f, 0.f),
+        glm::vec2(1000.f, 0.f)
+    };
 
-    ship1->add_module(std::move(std::make_unique<VoxelModuleTurret>(
+    enemy->add_module(std::move(std::make_unique<VoxelModuleTurret>(
         15,
         glm::vec2(0.f),
         glm::vec2(-50.f, 0.f),
@@ -202,29 +199,103 @@ std::vector<std::unique_ptr<ModuledEntity>> create_scene_entities(Scene& scene)
             ~0u
         }),
         10.f,
-        ship1->get_object().get_grid_transform(),
+        enemy->get_object().get_grid_transform(),
         0.25f,
         proj
         )));
 
-    scene.add(std::unique_ptr<VoxelObject>(&ship1->get_object())); // Scene должен хранить unique_ptr<DestructibleEntity> или базовый класс
+    scene.add(std::unique_ptr<VoxelObject>(&enemy->get_object())); // Scene должен хранить unique_ptr<DestructibleEntity> или базовый класс
     // Примечание: Если Scene хранит только DestructibleObject*, нужно будет изменить Scene или хранить Entity отдельно.
     // Для примера предположим, что мы храним Entity в отдельном списке или Scene адаптирован.
     // В текущей реализации Game мы будем хранить ссылки на Entity здесь, в векторе.
 
-    entities.push_back(std::move(ship1));
+    return std::move(enemy);
+}
 
-    // Второй корабль (противник/статичный объект)
-    auto ship2 = std::make_unique<ModuledEntity>(
+// --- Helper: Create Scene Objects ---
+// Возвращает указатель на DestructibleEntity для управления
+std::unique_ptr<ModuledEntity> create_player(Scene& scene)
+{
+    std::vector<std::unique_ptr<ModuledEntity>> entities;
+
+    const auto& spaceship_texture = res.texturesRepo["spaceship"].object;
+    const size_t spaceship_texture_id = res.texturesRepo["spaceship"].iDesc;
+    const uv_rect spaceship_texture_uv = global_repo->atlas.get_uv(spaceship_texture_id);
+
+    const auto& turret_texture = res.texturesRepo["turret"].object;
+    const size_t turret_texture_id = res.texturesRepo["turret"].iDesc;
+    const uv_rect turret_texture_uv = global_repo->atlas.get_uv(turret_texture_id);
+
+    // Создаем первый корабль
+    auto player = std::make_unique<ModuledEntity>(
         *global_repo,
         spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
-        voxel_object_params {5.f, 5.f, 0.f, 1.f, {0.f, 200.f}}
+        voxel_object_params {5.f, 5.f, 0.f, 1.f, {0.f, 0.f}} // Cell size 5, Origin y=-200
     );
 
-    scene.add(std::unique_ptr<VoxelObject>(&ship2->get_object()));
-    entities.push_back(std::move(ship2));
+    // 2. Двигатель (привязан к нижней части корабля)
+    // Предположим, что двигатель занимает нижние 20% пикселей по высоте
+    std::vector<std::pair<int, int>> engine_coords;
+    int h_start = static_cast<int>(spaceship_texture.height * 0.8f);
+    for (int x = 0; x < spaceship_texture.width; ++x) {
+        for (int y = h_start; y < spaceship_texture.height; ++y) {
+            engine_coords.emplace_back(x, y);
+        }
+    }
 
-    return entities;
+    std::vector<std::pair<int, int>> turret_coords;
+    int turret_left = static_cast<int>(spaceship_texture.width * 0.5f) - 2;
+    int turret_up = static_cast<int>(spaceship_texture.height * 0.5f) - 2;
+    int turret_right = static_cast<int>(spaceship_texture.width * 0.5f) + 2;
+    int turret_down = static_cast<int>(spaceship_texture.height * 0.5f) + 2;
+
+    for (int x = turret_left; x < turret_right; ++x) {
+        for (int y = turret_up; y < turret_down; ++y) {
+            turret_coords.emplace_back(x, y);
+        }
+    }
+
+    player->add_module(std::make_unique<VoxelModuleUniversalEngine>(10, glm::vec2(0.f), 0.f, engine_coords, 1000000.f, 100000000.f));
+
+    ProjectileMakeupData proj{
+            spaceship_texture_id,
+            spaceship_texture_uv,
+            kinetic_parameters (10.f, 100.f),
+            glm::vec2(10.f, 10.f),
+            explosion_data(50.f, 100.f, 10000.f),
+            500.f,
+            glm::vec2(150.f, 0.f),
+            glm::vec2(1000.f, 0.f)
+        };
+
+    player->add_module(std::move(std::make_unique<VoxelModuleTurret>(
+        15,
+        glm::vec2(0.f),
+        glm::vec2(-50.f, 0.f),
+        0.f,
+        turret_coords,
+        global_repo->addSprite(SpriteData{
+            turret_texture.width * 5.f,
+            turret_texture.height * 5.f,
+            0.f,
+            {0.f, 0.f},
+            1.f,
+            0.1f,
+            turret_texture_uv,
+            ~0u
+        }),
+        10.f,
+        player->get_object().get_grid_transform(),
+        0.25f,
+        proj
+        )));
+
+    scene.add(std::unique_ptr<VoxelObject>(&player->get_object())); // Scene должен хранить unique_ptr<DestructibleEntity> или базовый класс
+    // Примечание: Если Scene хранит только DestructibleObject*, нужно будет изменить Scene или хранить Entity отдельно.
+    // Для примера предположим, что мы храним Entity в отдельном списке или Scene адаптирован.
+    // В текущей реализации Game мы будем хранить ссылки на Entity здесь, в векторе.
+
+    return std::move(player);
 }
 
 // --- Helper: Input Handling ---
@@ -317,20 +388,29 @@ GameState menu_state() {
 // --- State: Singleplayer Loop ---
 GameState run_singleplayer() {
     Scene scene;
-    auto entities = create_scene_entities(scene);
-
-    // Для примера управления берем первый корабль
-    if (entities.empty()) return GameState::Menu;
+    auto player = create_player(scene);
 
     // PlayerController теперь должен работать с DestructibleObject&, который мы можем получить из Entity
-    PlayerObjectController controller(*entities[0]);
+    PlayerObjectController controller(*player);
 
     double last_time = glfwGetTime();
+
+    const float enemy_cooldown = 10.0f;
+    float last_enemy_spawn = -1.f;
+    float spawn_radius = 1000.f;
+
+    std::vector<std::unique_ptr<ModuledEntity>> enemies;
 
     while (!glfwWindowShouldClose(window)) {
         double current_time = glfwGetTime();
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
+        last_enemy_spawn += dt;
+
+        while (last_enemy_spawn > 0.f) {
+            enemies.push_back(spawn_enemy(scene, math::rotate_vec2({spawn_radius, 0.f}, rand() * 0.01f)));
+            last_enemy_spawn -= enemy_cooldown;
+        }
 
 #ifdef DEBUG_COLLISION
         ImGui_ImplOpenGL3_NewFrame();
@@ -345,8 +425,11 @@ GameState run_singleplayer() {
         glfwPollEvents();
         Renderer::renderAll(0);
 
-        entities[0]->update(dt);
-        entities[1]->update(dt);
+        player->update(dt);
+
+        for (auto& enemy : enemies) {
+            enemy->update(dt);
+        }
 
         scene.update(dt);
 
@@ -365,14 +448,13 @@ GameState run_singleplayer() {
     return GameState::Exit;
 }
 
-// --- State: Host Loop ---d
+// --- State: Host Loop ---
 GameState run_host() {
     const unsigned short PORT = 9090;
     Scene scene;
-    auto entities = create_scene_entities(scene);
+    auto player = create_player(scene);
 
-    if (entities.empty()) return GameState::Menu;
-    PlayerObjectController controller(*entities[0]);
+    PlayerObjectController controller(*player);
 
     try {
         net::listen_start(PORT);
@@ -405,9 +487,7 @@ GameState run_host() {
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
 
-        for (auto& entity : entities) {
-            entity->update(dt);
-        }
+        player->update(dt);
 
         controller.update(get_input());
 

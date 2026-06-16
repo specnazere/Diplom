@@ -206,3 +206,10 @@ private:
         mountData.angle += rotation - globalRotation();
     }
 };
+
+
+// export
+// class VoxelModuleControlRoom : public VoxelModule
+// {
+//     void apply_actions(actions& actions) override;
+// };

@@ -68,10 +68,10 @@ private:
     ControlState control_signals_;
 
 public:
-    VoxelObject& get_object() { return *object_.get(); }
-    const VoxelObject& get_object() const { return *object_.get(); }
-    signals::signal_t signal;
-    glm::vec2 target;
+    VoxelObject& get_object() { return *object_; }
+    const VoxelObject& get_object() const { return *object_; }
+    signals::signal_t signal = 0;
+    glm::vec2 target = {0, 0};
 
     // Конструктор принимает все необходимое для создания DestructibleObject
     ModuledEntity(
@@ -165,8 +165,6 @@ public:
             unrotated_acceleration.x * cosA - unrotated_acceleration.y * sinA,
             unrotated_acceleration.y * cosA + unrotated_acceleration.x * sinA});
         object_->add_angular_velocity(stats_.torque / object_->get_moment() * dt);
-
-        //object_->update(dt);
     }
 
     // Нанесение урона с автоматическим обновлением модулей
