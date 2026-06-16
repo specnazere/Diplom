@@ -794,6 +794,7 @@ private:
                 sd.uvRect.v0  = local_UV_.v0 + static_cast<float>(row) * pixel_v;
                 sd.uvRect.u1  = sd.uvRect.u0 + pixel_u;
                 sd.uvRect.v1  = sd.uvRect.v0 + pixel_v;
+                sd.color      = {255, 255, 255, 255};
                 sd.transformIdx = grid_center_transform_;
 
                 vx.spriteIdx = repo_.addSprite(sd);

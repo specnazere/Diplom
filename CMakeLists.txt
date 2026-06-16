@@ -16,8 +16,7 @@ target_sources(glad PRIVATE thirdparty/glad/src/glad.c)
 target_include_directories(glad PUBLIC thirdparty/glad/include)
 target_link_libraries(glad PUBLIC glfw)
 
-add_executable(${PROJECT_NAME} src/main.cpp
-        src/construct_game/VoxelGrid.ixx)
+add_executable(${PROJECT_NAME} src/main.cpp)
 
 # --- Чтение .defines ---
 set(DEFINES_FILE "${CMAKE_SOURCE_DIR}/.defines")
@@ -78,19 +77,21 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/graphics/SpritesRepository.ixx
         src/graphics/TransformNode.ixx
 
-        src/action_game/Spaceship.ixx
-        src/action_game/Destruction.ixx
-        src/action_game/DestructibleObject.ixx
-        src/action_game/Scene.ixx
-        src/action_game/PlayerObjectController.ixx
-        src/action_game/AIObjectController.ixx
-        src/action_game/ModuledEntity.ixx
-        src/action_game/VoxelModule.ixx
-        src/action_game/VoxelObject.ixx
-        src/action_game/Projectile.ixx
-        src/action_game/RecursiveHitbox.ixx
-        src/action_game/PhysicObject.ixx
-        src/action_game/SceneObject.ixx
+        src/actionGame/Spaceship.ixx
+        src/actionGame/Destruction.ixx
+        src/actionGame/DestructibleObject.ixx
+        src/actionGame/Scene.ixx
+        src/actionGame/PlayerObjectController.ixx
+        src/actionGame/AIObjectController.ixx
+        src/actionGame/ModuledEntity.ixx
+        src/actionGame/VoxelModule.ixx
+        src/actionGame/VoxelObject.ixx
+        src/actionGame/Projectile.ixx
+        src/actionGame/RecursiveHitbox.ixx
+        src/actionGame/PhysicObject.ixx
+        src/actionGame/SceneObject.ixx
+
+        src/constructGame/VoxelGrid.ixx
 
         src/netcode/protocols/Scene_sync_protocol.ixx
         src/netcode/protocols/Resource_sync_protocol.ixx

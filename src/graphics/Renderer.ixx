@@ -110,46 +110,6 @@ public:
             glGenBuffers(1, &instance_vbo_);
             glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
 
-            // Новая структура SpriteData (упрощенная для инстансинга, если мы вынесли позицию в TransformNode)
-            // Но в текущем SpriteData из файла есть width, height, angle, pos, paralax, uv.
-            // Мы будем использовать только width, height, paralax, uvRect и новый transformIdx.
-            // Примечание: Если вы хотите полностью вынести позицию в иерархию,
-            // то поля angle/pos в SpriteData могут игнорироваться шейдером или использоваться как смещение.
-            // В данном коде мы предполагаем, что шейдер читает iTransformIdx.
-
-            // Макет данных в VBO должен соответствовать тому, что мы отправляем.
-            // Допустим, мы отправляем полный SpriteData, но шейдер интерпретирует его иначе.
-            // Или лучше создать отдельную структуру для инстанс-буфера?
-            // Для простоты оставим SpriteData, но добавим поле transformIdx в конец или используем существующее.
-
-            // ВАЖНО: В предоставленном Sprite.ixx нет поля transformIdx в SpriteData.
-            // Оно есть в классе Sprite. Значит, нам нужно сформировать отдельный буфер
-            // или расширить SpriteData.
-            // Давайте предположим, что мы добавили `uint transformIdx` в конец SpriteData
-            // или используем отдельный вектор для инстанс-атрибутов.
-
-            // Чтобы не ломать существующий SpriteData, давайте создадим отдельный буфер
-            // только для индексов трансформаций, если их количество совпадает с количеством спрайтов.
-            // Но проще всего модифицировать SpriteData.
-            // Так как я не могу менять заголовочный файл здесь, я предположу,
-            // что вы добавили `uint transformIdx` в struct SpriteData в файле sprite.ixx.
-
-            // Если вы НЕ меняли SpriteData, то код ниже будет неверным.
-            // Предположим, что SpriteData теперь выглядит так:
-            // struct SpriteData { ...; uint transformIdx; };
-            // И выравнивание учтено.
-
-            // Атрибуты:
-            // loc 2: width (float)
-            // loc 3: height (float)
-            // loc 4: transformIdx (uint) <-- ЗАМЕНА угла
-            // loc 5: paralax (float) <-- Сдвиг, так как позиция удалена из атрибутов
-            // loc 6: uvRect (vec4)
-
-            // Проверка размеров:
-            // Если в SpriteData нет transformIdx, этот код нужно адаптировать под вашу реальную структуру.
-            // Ниже приведен код для структуры, где есть transformIdx.
-
             // Width
             glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, width));
@@ -216,6 +176,12 @@ public:
                 (void*)offsetof(SpriteData, depth));
             glEnableVertexAttribArray(9);
             glVertexAttribDivisor(9, 1);
+
+            // iColor — location 10
+            glVertexAttribPointer(10, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(SpriteData),
+                (void*)offsetof(SpriteData, color));
+            glEnableVertexAttribArray(10);
+            glVertexAttribDivisor(10, 1);
 
             glBindBuffer(GL_ARRAY_BUFFER, 0);
             glBindVertexArray(0);

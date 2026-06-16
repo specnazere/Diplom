@@ -16,10 +16,10 @@ layout(location = 5) in vec2  iPos;             // Локальная позиц
 layout(location = 6) in float iParalax;
 layout(location = 7) in vec4  iUVRect;
 layout(location = 8) in uint  iTransformIdx;    // Индекс в иерархии
-layout(location = 9) in float iDepth;    // Индекс в иерархии
+layout(location = 9) in float iDepth;
+layout(location = 10) in vec4 iColor;
 
 // Глобальный массив трансформаций (SSBO)
-// Формат узла: { x, y, angle, parentIndex_as_float }
 layout(std430, binding = 0) buffer TransformBuffer {
     Transform nodes[];
 };
@@ -32,13 +32,13 @@ out vec2 vUV;
 out vec3 vFragPos;
 out float vSin;
 out float vCos;
+out vec4 vColor;
 
 // Вычисление глобальной трансформации по цепочке родителей
 vec3 computeGlobalTransform(uint startIdx) {
     const uint INVALID = 0xFFFFFFFFu;
     if (startIdx == INVALID) return vec3(0.0);
 
-    // Сбор пути от листа к корню
     uint path[16];
     int depth = 0;
     uint cur = startIdx;
@@ -49,11 +49,9 @@ vec3 computeGlobalTransform(uint startIdx) {
         cur = (parent == INVALID) ? INVALID : parent;
     }
 
-    // Применение от корня к листу
     float gx = 0.0, gy = 0.0, ga = 0.0;
     for (int i = depth - 1; i >= 0; --i) {
         Transform n = nodes[path[i]];
-        // Поворот локального смещения узла на накопленный угол родителя
         float cosA = cos(ga), sinA = sin(ga);
         float rx = n.pos.x * cosA - n.pos.y * sinA;
         float ry = n.pos.x * sinA + n.pos.y * cosA;
@@ -63,11 +61,12 @@ vec3 computeGlobalTransform(uint startIdx) {
 }
 
 void main() {
+    vColor = iColor; // <-- Передача цвета во фрагментный шейдер
+
     // 1. Глобальная трансформация из иерархии
     vec3 global = computeGlobalTransform(iTransformIdx);
 
-    // 2. Локальная трансформация спрайта (применяется ПОСЛЕ глобальной)
-    // Сначала поворачиваем локальное смещение на глобальный угол
+    // 2. Локальная трансформация спрайта
     float cosG = cos(global.z), sinG = sin(global.z);
     float localRotX = iPos.x * cosG - iPos.y * sinG;
     float localRotY = iPos.x * sinG + iPos.y * cosG;

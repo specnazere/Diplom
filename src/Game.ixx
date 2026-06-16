@@ -20,9 +20,9 @@ module;
 #include <cstring>
 #include <glm/ext/matrix_projection.hpp>
 
-#include "action_game/explosion_data.h"
-#include "action_game/physic_parameters.h"
-#include "action_game/voxel_object_params.h"
+#include "actionGame/explosion_data.h"
+#include "actionGame/physic_parameters.h"
+#include "actionGame/voxel_object_params.h"
 #include "graphics/uv_rect.h"
 
 export module game;
@@ -47,6 +47,8 @@ import scene;
 import player_object_controller;
 import ai_object_controller;
 
+import voxel_grid;
+
 // Сетевые модули
 import native_tcp;
 import resource_sync_protocol;
@@ -62,7 +64,7 @@ GLFWwindow* window = nullptr;
 Resources res = Resources();
 std::unique_ptr<SpritesRepository> global_repo = nullptr;
 
-enum class GameState { Menu, Scene, Exit };
+enum class GameState { Menu, Scene, Grid, Exit };
 enum class NetworkMode { Singleplayer, Host, Client };
 
 // Глобальные сетевые объекты
@@ -104,6 +106,7 @@ void init_systems() {
     res.loadFontFile("res/fonts/trafaretkit.ttf", "basic");
     res.loadTextureFile("spaceship", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
     res.loadTextureFile("turret", "res/textures/turret/color.png", "res/textures/turret/normal.png");
+    res.addSolidColorTexture("blank", 255, 255, 255, 255);
 
     std::set<char32_t> combined_charset;
     Locale& loc = res.localesRepo["russian"].object;
@@ -197,6 +200,7 @@ std::pair<AIObjectController, std::unique_ptr<ModuledEntity>> spawn_enemy(Scene&
             1.f,
             0.1f,
             turret_texture_uv,
+            {255, 255, 255, 255},
             ~0u
         }),
         10.f,
@@ -283,6 +287,7 @@ std::unique_ptr<ModuledEntity> create_player(Scene& scene)
             1.f,
             0.1f,
             turret_texture_uv,
+            {255, 255, 255, 255},
             ~0u
         }),
         10.f,
@@ -337,8 +342,19 @@ GameState menu_state() {
 
     bool clicked = false;
 
-    if (ImGui::Button("Singleplayer", ImVec2(-1, 50))) {
+    GameState state = GameState::Menu;
+
+    if (ImGui::Button("Singleplayer Action", ImVec2(-1, 50))) {
         current_network_mode = NetworkMode::Singleplayer;
+        state = GameState::Scene;
+        clicked = true;
+    }
+
+    ImGui::Spacing();
+
+    if (ImGui::Button("Singleplayer Constructor", ImVec2(-1, 50))) {
+        current_network_mode = NetworkMode::Singleplayer;
+        state = GameState::Grid;
         clicked = true;
     }
 
@@ -346,6 +362,7 @@ GameState menu_state() {
 
     if (ImGui::Button("Host Game", ImVec2(-1, 50))) {
         current_network_mode = NetworkMode::Host;
+        state = GameState::Scene;
         clicked = true;
     }
 
@@ -353,6 +370,7 @@ GameState menu_state() {
 
     if (ImGui::Button("Join Game", ImVec2(-1, 50))) {
         current_network_mode = NetworkMode::Client;
+        state = GameState::Grid;
         clicked = true;
     }
 
@@ -376,7 +394,7 @@ GameState menu_state() {
     glfwPollEvents();
 
     if (clicked) {
-        return GameState::Scene;
+        return state;
     }
 
     if (glfwWindowShouldClose(window)) {
@@ -386,8 +404,8 @@ GameState menu_state() {
     return GameState::Menu;
 }
 
-// --- State: Singleplayer Loop ---
-GameState run_singleplayer() {
+GameState action_scene()
+{
     Scene scene;
     auto player = create_player(scene);
 
@@ -450,6 +468,48 @@ GameState run_singleplayer() {
     }
 
     return GameState::Exit;
+}
+
+GameState grid_scene()
+{
+    double last_time = glfwGetTime();
+
+    const auto& spaceship_texture = res.texturesRepo["spaceship"].object;
+    const size_t blank_texture_id = res.texturesRepo["blank"].iDesc;
+    const uv_rect blank_texture_uv = global_repo->atlas.get_uv(blank_texture_id);
+
+    VoxelGrid(spaceship_texture, blank_texture_uv, 10.f);
+
+    while (!glfwWindowShouldClose(window)) {
+        double current_time = glfwGetTime();
+        float dt = static_cast<float>(current_time - last_time);
+        last_time = current_time;
+
+        // code
+
+        glfwPollEvents();
+        Renderer::renderAll(0);
+
+        glfwSwapBuffers(window);
+
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            return GameState::Menu;
+        }
+    }
+
+    return GameState::Exit;
+}
+
+// --- State: Singleplayer Loop ---
+GameState run_singleplayer(GameState state) {
+    switch (state) {
+        case GameState::Scene:
+            return action_scene();
+        case GameState::Grid:
+            return grid_scene();
+        default:
+            return GameState::Exit;
+    }
 }
 
 // --- State: Host Loop ---
@@ -578,12 +638,8 @@ GameState run_client() {
     return GameState::Exit;
 }
 
-module_view()
-{
-}
-
 // --- State: Scene Dispatcher ---
-GameState scene_state() {
+GameState scene_state(GameState state) {
     has_client_connected = false;
     net::cleanup();
     host_res_sync.reset();
@@ -598,7 +654,7 @@ GameState scene_state() {
             return run_client();
         case NetworkMode::Singleplayer:
         default:
-            return run_singleplayer();
+            return run_singleplayer(state);
     }
 }
 
@@ -611,7 +667,8 @@ int run() {
             current_state = menu_state();
             break;
         case GameState::Scene:
-            current_state = scene_state();
+        case GameState::Grid:
+            current_state = scene_state(current_state);
             break;
         default:
             current_state = GameState::Exit;

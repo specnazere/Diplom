@@ -70,6 +70,7 @@ public:
         sd.paralax    = 1;
         sd.uvRect     = data.local_UV;
         sd.transformIdx = ~0u;
+        sd.color = {255, 255, 255, 255};
 
         sprite_ = repo_.addSprite(sd);
         Projectile::set_velocity(data.velocity);
