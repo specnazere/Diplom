@@ -45,6 +45,7 @@ import projectile;
 
 import scene;
 import player_object_controller;
+import ai_object_controller;
 
 // Сетевые модули
 import native_tcp;
@@ -131,7 +132,7 @@ void init_systems() {
     glfwSetScrollCallback(window, camera::scroll_callback);
 }
 
-std::unique_ptr<ModuledEntity> spawn_enemy(Scene& scene, const glm::vec2& pos)
+std::pair<AIObjectController, std::unique_ptr<ModuledEntity>> spawn_enemy(Scene& scene, const glm::vec2& pos)
 {
     const auto& spaceship_texture = res.texturesRepo["spaceship"].object;
     const size_t spaceship_texture_id = res.texturesRepo["spaceship"].iDesc;
@@ -176,7 +177,7 @@ std::unique_ptr<ModuledEntity> spawn_enemy(Scene& scene, const glm::vec2& pos)
         spaceship_texture_uv,
         kinetic_parameters (10.f, 100.f),
         glm::vec2(10.f, 10.f),
-        explosion_data(50.f, 100.f, 10000.f),
+        explosion_data(10.f, 100.f, 10000.f),
         500.f,
         glm::vec2(150.f, 0.f),
         glm::vec2(1000.f, 0.f)
@@ -209,7 +210,7 @@ std::unique_ptr<ModuledEntity> spawn_enemy(Scene& scene, const glm::vec2& pos)
     // Для примера предположим, что мы храним Entity в отдельном списке или Scene адаптирован.
     // В текущей реализации Game мы будем хранить ссылки на Entity здесь, в векторе.
 
-    return std::move(enemy);
+    return {AIObjectController(*enemy), std::move(enemy)};
 }
 
 // --- Helper: Create Scene Objects ---
@@ -395,11 +396,11 @@ GameState run_singleplayer() {
 
     double last_time = glfwGetTime();
 
-    const float enemy_cooldown = 10.0f;
-    float last_enemy_spawn = -1.f;
+    const float enemy_cooldown = 10.f;
+    float last_enemy_spawn = -2.f;
     float spawn_radius = 1000.f;
 
-    std::vector<std::unique_ptr<ModuledEntity>> enemies;
+    std::vector<std::pair<AIObjectController, std::unique_ptr<ModuledEntity>>> enemies;
 
     while (!glfwWindowShouldClose(window)) {
         double current_time = glfwGetTime();
@@ -421,17 +422,20 @@ GameState run_singleplayer() {
         // Управление игроком (изменяет velocity/angular_velocity внутри объекта)
         controller.update(get_input());
 
-        // Рендеринг
-        glfwPollEvents();
-        Renderer::renderAll(0);
+        for (auto& enemy : enemies) {
+            enemy.first.update(dt, player->get_object().global_position());
+        }
 
         player->update(dt);
 
         for (auto& enemy : enemies) {
-            enemy->update(dt);
+            enemy.second->update(dt);
         }
 
         scene.update(dt);
+
+        glfwPollEvents();
+        Renderer::renderAll(0);
 
 #ifdef DEBUG_COLLISION
         ImGui::Render();

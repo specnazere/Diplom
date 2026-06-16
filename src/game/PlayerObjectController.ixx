@@ -42,20 +42,20 @@ public:
 
     // Обновление физики объекта на основе ввода
     // dt - время кадра в секундах
-    void update(const InputState& input)
+    void update(const InputState& playerInput)
     {
         signals::signal_t& signal = object_.signal;
         signal = 0;
 
-        if (input.up)    signal += signals::forwardSignal;
-        if (input.down)  signal += signals::backwardSignal;
-        if (input.right) signal += signals::rightSignal;
-        if (input.left)  signal += signals::leftSignal;
-        if (input.rotate_right) signal += signals::yawLeftSignal;
-        if (input.rotate_left)  signal += signals::yawRightSignal;
-        if (input.fire) signal += signals::primaryWeaponSignal;
+        if (playerInput.up)    signal += signals::forwardSignal;
+        if (playerInput.down)  signal += signals::backwardSignal;
+        if (playerInput.right) signal += signals::rightSignal;
+        if (playerInput.left)  signal += signals::leftSignal;
+        if (playerInput.rotate_right) signal += signals::yawLeftSignal;
+        if (playerInput.rotate_left)  signal += signals::yawRightSignal;
+        if (playerInput.fire) signal += signals::primaryWeaponSignal;
 
-        object_.target = input.globalCursorPosition;
+        object_.target = playerInput.globalCursorPosition;
 
         glm::vec2 object_world_pos = object_.get_object().global_position();
         camera::set_pos(object_world_pos.x, object_world_pos.y);

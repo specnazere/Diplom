@@ -82,6 +82,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/game/DestructibleObject.ixx
         src/game/Scene.ixx
         src/game/PlayerObjectController.ixx
+        src/game/AIObjectController.ixx
         src/game/ModuledEntity.ixx
         src/game/VoxelModule.ixx
         src/game/VoxelObject.ixx
