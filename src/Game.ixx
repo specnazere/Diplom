@@ -34,6 +34,7 @@ import locale;
 import font;
 import atlas;
 import destruction;
+import camera;
 
 import destructible_entity;
 import voxel_object;
@@ -52,7 +53,6 @@ import scene_sync_protocol;
 import host_scene_sync;
 import client_scene_sync;
 
-class SceneObject;
 export namespace game {
 
 GLFWwindow* window = nullptr;
@@ -125,6 +125,8 @@ void init_systems() {
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 430");
+
+    glfwSetScrollCallback(window, camera::scroll_callback);
 }
 
 // --- Helper: Create Scene Objects ---
@@ -238,11 +240,7 @@ InputState get_input() {
 
     double x, y;
     glfwGetCursorPos(window, &x, &y);
-    int width, height;
-    glfwGetWindowSize(window, &width, &height);
-    x -= width / 2.f; y -= height / 2.f;
-    input.globalCursorPosition = glm::vec2(x, -y);
-
+    input.globalCursorPosition = camera::screen_to_world(glm::vec2(x, -y));
 
     return input;
 }

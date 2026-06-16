@@ -3,6 +3,7 @@
 //
 module;
 
+#include <iostream>
 #include <map>
 #include <memory>
 
@@ -202,6 +203,6 @@ private:
     inline void setGlobalRotation(const float& rotation)
     {
         TransformNode& mountData = turretMountData();
-        mountData.angle = rotation;
+        mountData.angle += rotation - globalRotation();
     }
 };

@@ -4,6 +4,8 @@
 
 module;
 
+#include <GLFW/glfw3.h>
+
 #include "glm/fwd.hpp"
 #include "glm/gtc/type_ptr.hpp"
 
@@ -62,7 +64,7 @@ public:
         reload_view();
     }
 
-    static void add_scale(const float& scale)
+    static void mult_scale(const float& scale)
     {
         scale_ *= scale;
         reload_view();
@@ -104,5 +106,20 @@ public:
         float screen_x = rel_x + half_w;
         float screen_y = -rel_y + half_h;
         return {screen_x, screen_y};
-    };
+    }
+
+    static glm::vec2 screen_to_world(const glm::vec2& screen) {
+        float half_w = frame_width_ * 0.5f;
+        float half_h = frame_height_ * 0.5f;
+        float rel_x = screen.x - half_w;
+        float rel_y = screen.y + half_h;
+        float world_x = rel_x * scale_ + pos_x_;
+        float world_y = rel_y * scale_ + pos_y_;
+        return {world_x, world_y};
+    }
+
+    static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+        scale_ *= std::powf(0.8f, yoffset);
+        reload_view();
+    }
 };
