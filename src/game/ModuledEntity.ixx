@@ -146,7 +146,9 @@ public:
                 std::optional<ProjectileMakeupData> projectile_data = fire_action(dt);
                 if (projectile_data.has_value()) {
                     std::vector<std::unique_ptr<events::SceneEvent>> events;
-                    events.push_back(std::make_unique<events::AddObject>(std::make_unique<Projectile>(repo_, projectile_data.value()), std::vector{object_->id()}));
+                    ProjectileMakeupData projectile = projectile_data.value();
+                    projectile.velocity += object_->get_velocity();
+                    events.push_back(std::make_unique<events::AddObject>(std::make_unique<Projectile>(repo_, projectile), std::vector{object_->id()}));
                     object_->invokeEventsFromThis(std::move(events));
                 }
             }
