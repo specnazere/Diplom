@@ -8,8 +8,9 @@ module;
 
 export module player_object_controller;
 
-import destructible_entity;
-import camera;
+export import moduled_entity;
+export import networked_voxel_object;
+export import camera;
 
 // Простая структура для состояния ввода
 // Можно заменить на polling из GLFW/SDL в месте вызова
@@ -31,12 +32,12 @@ export struct InputState
 export class PlayerObjectController
 {
 private:
-    ModuledEntity& object_;
+    ModuledEntity<NetworkedVoxelObject>& object_;
 
 public:
     // Настройки управления
 
-    PlayerObjectController(ModuledEntity& obj)
+    PlayerObjectController(ModuledEntity<NetworkedVoxelObject>& obj)
         : object_(obj)
     {}
 

@@ -18,13 +18,13 @@ module;
 #include "voxel_object_actions.h"
 #include "voxel_object_params.h"
 
-export module destructible_entity;
+export module moduled_entity;
 
-import voxel_object;
-import sprite_repository;
-import texture;
-import voxel_module;
-import scene_object;
+export import voxel_object;
+export import sprite_repository;
+export import texture;
+export import voxel_module;
+export import scene_object;
 
 export
 struct EntityStats
@@ -48,6 +48,8 @@ namespace signals
 
 // Обертка над объектом и его логикой
 export
+template<typename Object_t = VoxelObject>
+requires std::is_base_of_v<VoxelObject, Object_t>
 class ModuledEntity
 {
 public:
@@ -58,8 +60,7 @@ public:
     };
 
 private:
-    SpritesRepository& repo_;
-    std::unique_ptr<VoxelObject> object_;
+    std::unique_ptr<Object_t> object_;
     std::vector<std::unique_ptr<VoxelModule>> modules_;
     size_t initial_alive_count_ = 0;
     actions actions_;
@@ -68,23 +69,29 @@ private:
     ControlState control_signals_;
 
 public:
-    VoxelObject& get_object() { return *object_; }
-    const VoxelObject& get_object() const { return *object_; }
+    Object_t& get_object() { return *object_; }
+    const Object_t& get_object() const { return *object_; }
     signals::signal_t signal = 0;
     glm::vec2 target = {0, 0};
 
     // Конструктор принимает все необходимое для создания DestructibleObject
     ModuledEntity(
-        SpritesRepository& repo,
         const texture& tex,
         size_t texture_id,
         const uv_rect& local_uv,
-        voxel_object_params params = VoxelObject::standart_params,
+        voxel_object_params params = Object_t::standart_params,
         bool chipped = false,
         unsigned char alpha_threshold = 0)
-        : repo_(repo)
     {
-        object_ = std::make_unique<VoxelObject>(repo, tex, texture_id, local_uv, params, chipped, alpha_threshold);
+        object_ = std::make_unique<Object_t>(tex, texture_id, local_uv, params, chipped, alpha_threshold);
+        initial_alive_count_ = count_alive_voxels();
+        recalculate_state();
+    }
+
+    ModuledEntity(
+        std::unique_ptr<Object_t> object)
+        : object_(std::move(object))
+    {
         initial_alive_count_ = count_alive_voxels();
         recalculate_state();
     }
@@ -148,7 +155,7 @@ public:
                     std::vector<std::unique_ptr<events::SceneEvent>> events;
                     ProjectileMakeupData projectile = projectile_data.value();
                     projectile.velocity += object_->get_velocity();
-                    events.push_back(std::make_unique<events::AddObject>(std::make_unique<Projectile>(repo_, projectile), std::vector{object_->id()}));
+                    events.push_back(std::make_unique<events::AddObject>(std::make_unique<Projectile>(projectile), std::vector{object_->id()}));
                     object_->invokeEventsFromThis(std::move(events));
                 }
             }

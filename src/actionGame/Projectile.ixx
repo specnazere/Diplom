@@ -37,7 +37,6 @@ export
 class Projectile : public SceneObject
 {
 private:
-    SpritesRepository& repo_;
     physic_parameters physic_;
     size_t texture_id_;
     size_t sprite_;
@@ -52,10 +51,8 @@ private:
 
 public:
     Projectile(
-    SpritesRepository& repository,
     ProjectileMakeupData data)
-    : repo_(repository)
-    , physic_({data.velocity, 0.f, data.kinetic.mass, data.kinetic.moment})
+    : physic_({data.velocity, 0.f, data.kinetic.mass, data.kinetic.moment})
     , texture_id_(data.texture_id)
     , explosion_(data.explosion)
     , integrity_(data.integrity)
@@ -72,35 +69,36 @@ public:
         sd.transformIdx = ~0u;
         sd.color = {255, 255, 255, 255};
 
-        sprite_ = repo_.addSprite(sd);
+        auto& repo = SpritesRepository::get_active();
+        sprite_ = repo.addSprite(sd);
         Projectile::set_velocity(data.velocity);
         Projectile::set_position(data.position);
     }
 
     const float& get_angle() const override
     {
-        return repo_.getDataPointer(sprite_)->angle;
+        return SpritesRepository::get_active().getDataPointer(sprite_)->angle;
     }
     void add_angle(const float& dAngle) override
     {
-        repo_.getDataPointer(sprite_)->angle += dAngle;
+        SpritesRepository::get_active().getDataPointer(sprite_)->angle += dAngle;
     }
     void set_angle(const float& angle) override
     {
-        repo_.getDataPointer(sprite_)->angle = angle;
+        SpritesRepository::get_active().getDataPointer(sprite_)->angle = angle;
     }
 
     void add_position(const glm::vec2& pos) override
     {
-        repo_.getDataPointer(sprite_)->position += pos;
+        SpritesRepository::get_active().getDataPointer(sprite_)->position += pos;
     }
     void set_position(const glm::vec2& pos) override
     {
-        repo_.getDataPointer(sprite_)->position = pos;
+        SpritesRepository::get_active().getDataPointer(sprite_)->position = pos;
     }
     const glm::vec2& get_position() const override
     {
-        return repo_.getDataPointer(sprite_)->position;
+        return SpritesRepository::get_active().getDataPointer(sprite_)->position;
     }
 
     const float& get_angular_velocity() const override
@@ -225,12 +223,12 @@ public:
 
     ~Projectile()
     {
-        repo_.removeSprite(sprite_);
+        SpritesRepository::get_active().removeSprite(sprite_);
     }
 
 private:
     const uv_rect& getUV() const
     {
-        return repo_.getDataPointer(sprite_)->uvRect;
+        return SpritesRepository::get_active().getDataPointer(sprite_)->uvRect;
     }
 };

@@ -4,15 +4,17 @@
 module;
 
 #include <algorithm>
+#include <memory>
 #include <vector>
 
 #include "graphics/uv_rect.h"
 
 export module voxel_grid;
 
-import texture;
-import sprite_repository;
-import camera;
+export import texture;
+export import sprite_repository;
+export import camera;
+export import voxel_health_protocol;
 
 export
 enum overlays : uint8_t
@@ -42,10 +44,10 @@ struct overlay_colors
 export
 struct Voxel
 {
-    int max_health;
-    float health;
+    float max_health{};
+    float health{};
     overlay_colors overlays;
-    size_t sprite_index;
+    size_t sprite_index{};
 };
 
 export
@@ -138,6 +140,38 @@ public:
         return;
     }
 
+    // В VoxelGrid или SceneManager
+    static std::unique_ptr<VoxelGrid> create_from_snapshot(
+        const texture& tex,
+        uv_rect blank_uv,
+        const std::vector<VoxelStateUpdate>& updates)
+    {
+
+        // Создаём VoxelGrid с найденной текстурой
+        auto grid = std::make_unique<VoxelGrid>(tex, blank_uv, 1.f);
+
+        // Применяем здоровье из снапшота
+        SpritesRepository& repo = SpritesRepository::get_active();
+        for (const auto& upd : updates) {
+            if (upd.voxel_idx >= grid->voxels_.size()) continue;
+
+            Voxel& vx = grid->voxels_[upd.voxel_idx];
+            vx.health = upd.health;
+            vx.max_health = vx.health;
+
+            vx.overlays.health_color = health_color(
+                static_cast<float>(vx.health),
+                static_cast<float>(vx.max_health)
+            );
+
+            if (grid->current_overlay_ == healthOverlay) {
+                repo.dataFromSpriteIdx(vx.sprite_index).color = vx.overlays.health_color;
+            }
+        }
+
+        return grid;
+    }
+
     void set_overlay(overlays overlay)
     {
         SpritesRepository& repo = SpritesRepository::get_active();
@@ -177,5 +211,28 @@ public:
             };
         }
         return {};
+    }
+
+    void apply_network_update(const VoxelBatchUpdate& batch)
+    {
+        SpritesRepository& repo = SpritesRepository::get_active();
+
+        for (uint32_t i = 0; i < batch.count; ++i) {
+            const auto& upd = batch.updates[i];
+            if (upd.voxel_idx >= voxels_.size()) continue;
+
+            Voxel& vx = voxels_[upd.voxel_idx];
+
+            // Применяем здоровье (приводим float к int, как у тебя в VoxelGrid)
+            vx.health = static_cast<int>(upd.health);
+
+            // Пересчитываем цвет оверлея здоровья
+            vx.overlays.health_color = health_color(static_cast<float>(vx.health), static_cast<float>(vx.max_health));
+
+            // Если сейчас включен оверлей здоровья, обновляем цвет спрайта
+            if (current_overlay_ == healthOverlay) {
+                repo.dataFromSpriteIdx(vx.sprite_index).color = vx.overlays.health_color;
+            }
+        }
     }
 };

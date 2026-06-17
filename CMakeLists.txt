@@ -90,17 +90,14 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/actionGame/RecursiveHitbox.ixx
         src/actionGame/PhysicObject.ixx
         src/actionGame/SceneObject.ixx
+        src/actionGame/NetworkedVoxelObject.ixx
 
         src/constructGame/VoxelGrid.ixx
 
-        src/netcode/protocols/Scene_sync_protocol.ixx
-        src/netcode/protocols/Resource_sync_protocol.ixx
-        src/netcode/protocols/Atlas_sync_protocol.ixx
         src/netcode/Native_tcp.ixx
-        src/netcode/Host_resource_sync.ixx
-        src/netcode/Client_resource_sync.ixx
-        src/netcode/Host_scene_sync.ixx
-        src/netcode/Client_scene_sync.ixx
+        src/netcode/voxelHealthProtocol.ixx
+        src/netcode/HostSender.ixx
+        src/netcode/ClientReceiver.ixx
 
         src/misc/Multitype_index_repository.ixx
         src/misc/Additional_math.ixx

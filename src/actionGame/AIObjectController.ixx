@@ -9,13 +9,13 @@ module;
 
 export module ai_object_controller;
 
-import destructible_entity;
+import moduled_entity;
 import additional_math;
 
 export class AIObjectController
 {
 private:
-    ModuledEntity& object_;
+    ModuledEntity<VoxelObject>& object_;
 
     enum class AIState { Approach, Retreat, CircleStrafe };
     AIState currentState_ = AIState::Approach;
@@ -34,7 +34,7 @@ private:
     }
 
 public:
-    explicit AIObjectController(ModuledEntity& obj) : object_(obj) {}
+    explicit AIObjectController(ModuledEntity<VoxelObject>& obj) : object_(obj) {}
 
     void update(float dt, const std::optional<glm::vec2>& target)
     {

@@ -16,14 +16,16 @@ module;
 
 export module voxel_object;
 
-import sprite;
-import sprite_repository;
-import texture;
-import atlas;
-import recursive_hitbox;
-import scene_object;
-import additional_math;
-import transform_node;
+export import sprite;
+export import sprite_repository;
+export import texture;
+export import atlas;
+export import recursive_hitbox;
+export import scene_object;
+export import additional_math;
+export import transform_node;
+export import voxel_health_protocol;
+export import native_tcp;
 
 // ---------------------------------------------------------------------------
 //  Статусы вокселей
@@ -84,7 +86,6 @@ private:
     float angular_velocity_ = 0;
 
 protected:
-    SpritesRepository& repo_;
     const texture& tex_;
 
     EventInvokingFunction* newEventFunc_;
@@ -103,23 +104,23 @@ public:
     //                     при 0 (по умолчанию) все пиксели активны
     // -----------------------------------------------------------------------
     VoxelObject(
-        SpritesRepository& repository,
         const texture&     tex,
         const size_t texture_id,
         const uv_rect&     local_UV,
         const voxel_object_params& params = standart_params,
         bool chipped = false,
-        unsigned char alpha_threshold = 0)
-        : repo_(repository)
-        , tex_(tex)
+        unsigned char alpha_threshold = 0,
+        bool net_main = false)
+        : tex_(tex)
         , params_(params)
         , local_UV_(local_UV)
         , parent_texture_(texture_id)
     {
-        grid_center_transform_ = repo_.createTransform();
-        mass_center_transform_ = repo_.createTransform();
-        TransformNode& mass_transform = repo_.getTransform(mass_center_transform_);
-        TransformNode& grid_transform = repo_.getTransform(grid_center_transform_);
+        auto& repo = SpritesRepository::get_active();
+        grid_center_transform_ = repo.createTransform();
+        mass_center_transform_ = repo.createTransform();
+        TransformNode& mass_transform = repo.getTransform(mass_center_transform_);
+        TransformNode& grid_transform = repo.getTransform(grid_center_transform_);
         grid_transform.parentIndex = mass_center_transform_;
         mass_transform.position = params_.origin;
         mass_transform.angle = params_.angle;
@@ -141,9 +142,10 @@ public:
 
     ~VoxelObject()
     {
+        auto& repo = SpritesRepository::get_active();
         for (auto& vx : voxels_)
             if (vx.has_sprite())
-                repo_.removeSprite(vx.spriteIdx);
+                repo.removeSprite(vx.spriteIdx);
     }
 
     // -----------------------------------------------------------------------
@@ -184,7 +186,8 @@ public:
 
         float cos_value = cos(angle);
         float sin_value = sin(angle);
-        glm::vec2 grid_center = global_position() + math::rotate_vec2(repo_.getTransform(grid_center_transform_).position, angle);
+        auto& repo = SpritesRepository::get_active();
+        glm::vec2 grid_center = global_position() + math::rotate_vec2(repo.getTransform(grid_center_transform_).position, angle);
 
         glm::vec2 diff = position - grid_center;
         glm::vec2 local_position = glm::vec2(
@@ -215,6 +218,8 @@ public:
                 }
 
                 vx.hp -= explosion.strength;
+                on_voxel_damaged(c, r);
+
                 if (vx.hp <= 0.f)
                 {
                     vx.hp = 0.f;
@@ -382,16 +387,16 @@ public:
         std::vector<std::unique_ptr<VoxelObject>> fragments;
         fragments.reserve(static_cast<size_t>(num_components - 1));
 
+        auto& repo = SpritesRepository::get_active();
         for (int comp_id = 0; comp_id < num_components; ++comp_id)
         {
             if (comp_id == main_comp) continue;
 
-            glm::vec2 frag_center = global_position() + math::rotate_vec2(repo_.getTransform(grid_center_transform_).position, global_rotation());
+            glm::vec2 frag_center = global_position() + math::rotate_vec2(repo.getTransform(grid_center_transform_).position, global_rotation());
             const float& global_angle = get_angle();
 
             // Создаём пустой объект с теми же параметрами (build_voxels не вызывается)
             fragments.push_back(std::move(std::make_unique<VoxelObject>(
-                repo_,
                 tex_,
                 parent_texture_,
                 local_UV_,
@@ -416,7 +421,7 @@ public:
                 Voxel& dst = frag.voxels_[static_cast<size_t>(i)];
 
                 dst = src;           // копируем данные вокселя (center, hp, spriteIdx)
-                repo_.dataFromSpriteIdx(dst.spriteIdx).transformIdx = frag.grid_center_transform_;
+                repo.dataFromSpriteIdx(dst.spriteIdx).transformIdx = frag.grid_center_transform_;
 
                 // Забираем спрайт из текущего объекта
                 src.spriteIdx = ~size_t{0};
@@ -455,25 +460,26 @@ public:
     // -----------------------------------------------------------------------
     void sync_sprites()
     {
+        auto& repo = SpritesRepository::get_active();
         for (auto& vx : voxels_)
         {
             if (!vx.has_sprite()) continue;
-            SpriteData& sd = repo_.dataFromSpriteIdx(vx.spriteIdx);
+            SpriteData& sd = repo.dataFromSpriteIdx(vx.spriteIdx);
             sd.position = vx.center;
         }
     }
 
     const float& get_angle() const override
     {
-        return repo_.getTransform(mass_center_transform_).angle;
+        return SpritesRepository::get_active().getTransform(mass_center_transform_).angle;
     }
     void add_angle(const float& dAngle) override
     {
-        repo_.getTransform(mass_center_transform_).angle += dAngle;
+        SpritesRepository::get_active().getTransform(mass_center_transform_).angle += dAngle;
     }
     void set_angle(const float& angle) override
     {
-        repo_.getTransform(mass_center_transform_).angle = angle;
+        SpritesRepository::get_active().getTransform(mass_center_transform_).angle = angle;
     }
 
     void set_global_angle(const float& angle)
@@ -485,15 +491,15 @@ public:
 
     void add_position(const glm::vec2& pos) override
     {
-        repo_.getTransform(mass_center_transform_).position += pos;
+        SpritesRepository::get_active().getTransform(mass_center_transform_).position += pos;
     }
     void set_position(const glm::vec2& pos) override
     {
-        repo_.getTransform(mass_center_transform_).position = pos;
+        SpritesRepository::get_active().getTransform(mass_center_transform_).position = pos;
     }
     const glm::vec2& get_position() const override
     {
-        return repo_.getTransform(mass_center_transform_).position;
+        return SpritesRepository::get_active().getTransform(mass_center_transform_).position;
     }
 
     const float& get_angular_velocity() const override
@@ -643,27 +649,27 @@ public:
 
     void set_parent_transform(int index)
     {
-        repo_.getTransform(mass_center_transform_).parentIndex = index;
+        SpritesRepository::get_active().getTransform(mass_center_transform_).parentIndex = index;
     }
 
     int get_parent_transform()
     {
-        return repo_.getTransform(grid_center_transform_).parentIndex;
+        return SpritesRepository::get_active().getTransform(grid_center_transform_).parentIndex;
     }
 
     glm::vec2 global_position()
     {
-        return repo_.getGlobalPosition(mass_center_transform_);
+        return SpritesRepository::get_active().getGlobalPosition(mass_center_transform_);
     }
 
     float global_rotation()
     {
-        return repo_.getGlobalRotation(mass_center_transform_);
+        return SpritesRepository::get_active().getGlobalRotation(mass_center_transform_);
     }
 
     float local_rotation()
     {
-        return repo_.getTransform(mass_center_transform_).angle;
+        return SpritesRepository::get_active().getTransform(mass_center_transform_).angle;
     }
 
     const size_t& id() override
@@ -707,7 +713,7 @@ private:
              (bound.x1 * params_.cell_size + size.x * 0.5f) - cols_ * 0.5f * params_.cell_size,
              (bound.y1 * params_.cell_size + size.y * 0.5f) - rows_ * 0.5f * params_.cell_size
             };
-        hitbox_shift += repo_.getTransform(grid_center_transform_).position;
+        hitbox_shift += SpritesRepository::get_active().getTransform(grid_center_transform_).position;
 
         hitbox_ = std::make_unique<RecursiveHitbox>(
         bound,
@@ -760,6 +766,7 @@ private:
         const float pixel_v = (local_UV_.v1 - local_UV_.v0) / static_cast<float>(tex_.height);
         const size_t tex_desc = reinterpret_cast<size_t>(&tex_);
 
+        auto& repo = SpritesRepository::get_active();
         for (int row = 0; row < rows_; ++row)
         {
             for (int col = 0; col < cols_; ++col)
@@ -797,8 +804,8 @@ private:
                 sd.color      = {255, 255, 255, 255};
                 sd.transformIdx = grid_center_transform_;
 
-                vx.spriteIdx = repo_.addSprite(sd);
-                repo_[vx.spriteIdx].textureDesc = tex_desc;
+                vx.spriteIdx = repo.addSprite(sd);
+                repo[vx.spriteIdx].textureDesc = tex_desc;
             }
         }
     }
@@ -819,8 +826,9 @@ private:
         new_mass_center /= alive_num;
         mass_ = alive_num;
 
-        TransformNode& mass_center = repo_.getTransform(mass_center_transform_);
-        TransformNode& grid_center = repo_.getTransform(grid_center_transform_);
+        auto& repo = SpritesRepository::get_active();
+        TransformNode& mass_center = repo.getTransform(mass_center_transform_);
+        TransformNode& grid_center = repo.getTransform(grid_center_transform_);
 
         glm::vec2 mass_center_shift = new_mass_center + grid_center.position;
 
@@ -880,9 +888,13 @@ private:
     {
         if (vx.has_sprite())
         {
-            repo_.removeSprite(vx.spriteIdx);
+            SpritesRepository::get_active().removeSprite(vx.spriteIdx);
             vx.spriteIdx = ~size_t{0};
         }
         vx.status = VoxelStatus::Absent;
     }
+
+protected:
+    // Вызывается для каждого вокселя, чье здоровье изменилось в area_damage
+    virtual void on_voxel_damaged(int col, int row) {}
 };

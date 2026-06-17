@@ -38,7 +38,7 @@ import atlas;
 import destruction;
 import camera;
 
-import destructible_entity;
+import moduled_entity;
 import voxel_object;
 import voxel_module;
 import projectile;
@@ -51,12 +51,8 @@ import voxel_grid;
 
 // Сетевые модули
 import native_tcp;
-import resource_sync_protocol;
-import host_resource_sync;
-import client_resource_sync;
-import scene_sync_protocol;
-import host_scene_sync;
-import client_scene_sync;
+import networked_voxel_object;
+import client_receiver;
 
 export namespace game {
 
@@ -69,10 +65,6 @@ enum class NetworkMode { Singleplayer, Host, Client };
 
 // Глобальные сетевые объекты
 NetworkMode current_network_mode = NetworkMode::Singleplayer;
-std::unique_ptr<net::HostResourceSynchronizer> host_res_sync;
-std::unique_ptr<net::ClientResourceSynchronizer> client_res_sync;
-std::unique_ptr<net::HostSceneSynchronizer> host_scene_sync;
-std::unique_ptr<net::ClientSceneSynchronizer> client_scene_sync;
 bool has_client_connected = false;
 
 // --- Helper: Init Systems ---
@@ -135,7 +127,7 @@ void init_systems() {
     glfwSetScrollCallback(window, camera::scroll_callback);
 }
 
-std::pair<AIObjectController, std::unique_ptr<ModuledEntity>> spawn_enemy(Scene& scene, const glm::vec2& pos)
+std::pair<AIObjectController, std::unique_ptr<ModuledEntity<VoxelObject>>> spawn_enemy(Scene& scene, const glm::vec2& pos)
 {
     const auto& spaceship_texture = res.texturesRepo["spaceship"].object;
     const size_t spaceship_texture_id = res.texturesRepo["spaceship"].iDesc;
@@ -145,8 +137,7 @@ std::pair<AIObjectController, std::unique_ptr<ModuledEntity>> spawn_enemy(Scene&
     const size_t turret_texture_id = res.texturesRepo["turret"].iDesc;
     const uv_rect turret_texture_uv = global_repo->atlas.get_uv(turret_texture_id);
 
-    auto enemy = std::make_unique<ModuledEntity>(
-        *global_repo,
+    auto enemy = std::make_unique<ModuledEntity<VoxelObject>>(
         spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
         voxel_object_params {5.f, 5.f, 0.f, 1.f, pos} // Cell size 5, Origin y=-200
     );
@@ -219,10 +210,8 @@ std::pair<AIObjectController, std::unique_ptr<ModuledEntity>> spawn_enemy(Scene&
 
 // --- Helper: Create Scene Objects ---
 // Возвращает указатель на DestructibleEntity для управления
-std::unique_ptr<ModuledEntity> create_player(Scene& scene)
+std::unique_ptr<ModuledEntity<NetworkedVoxelObject>> create_player(Scene& scene)
 {
-    std::vector<std::unique_ptr<ModuledEntity>> entities;
-
     const auto& spaceship_texture = res.texturesRepo["spaceship"].object;
     const size_t spaceship_texture_id = res.texturesRepo["spaceship"].iDesc;
     const uv_rect spaceship_texture_uv = global_repo->atlas.get_uv(spaceship_texture_id);
@@ -231,15 +220,14 @@ std::unique_ptr<ModuledEntity> create_player(Scene& scene)
     const size_t turret_texture_id = res.texturesRepo["turret"].iDesc;
     const uv_rect turret_texture_uv = global_repo->atlas.get_uv(turret_texture_id);
 
-    // Создаем первый корабль
-    auto player = std::make_unique<ModuledEntity>(
-        *global_repo,
-        spaceship_texture, spaceship_texture_id, spaceship_texture_uv,
-        voxel_object_params {5.f, 5.f, 0.f, 1.f, {0.f, 0.f}} // Cell size 5, Origin y=-200
+    auto player = std::make_unique<ModuledEntity<NetworkedVoxelObject>>(
+        std::make_unique<NetworkedVoxelObject>(
+            0,
+            spaceship_texture, spaceship_texture_id, "spaceship", spaceship_texture_uv,
+            voxel_object_params{5.f, 5.f, 0.f, 1.f, {0.f, 0.f}})
     );
 
     // 2. Двигатель (привязан к нижней части корабля)
-    // Предположим, что двигатель занимает нижние 20% пикселей по высоте
     std::vector<std::pair<int, int>> engine_coords;
     int h_start = static_cast<int>(spaceship_texture.height * 0.8f);
     for (int x = 0; x < spaceship_texture.width; ++x) {
@@ -418,7 +406,7 @@ GameState action_scene()
     float last_enemy_spawn = -2.f;
     float spawn_radius = 1000.f;
 
-    std::vector<std::pair<AIObjectController, std::unique_ptr<ModuledEntity>>> enemies;
+    std::vector<std::pair<AIObjectController, std::unique_ptr<ModuledEntity<VoxelObject>>>> enemies;
 
     while (!glfwWindowShouldClose(window)) {
         double current_time = glfwGetTime();
@@ -518,8 +506,6 @@ GameState run_host() {
     Scene scene;
     auto player = create_player(scene);
 
-    PlayerObjectController controller(*player);
-
     try {
         net::listen_start(PORT);
         std::cout << "Host: Listening on port " << PORT << "\n";
@@ -533,48 +519,101 @@ GameState run_host() {
         has_client_connected = true;
         std::cout << "Host: Client connected!\n";
 
-        host_res_sync = std::make_unique<net::HostResourceSynchronizer>();
-        host_scene_sync = std::make_unique<net::HostSceneSynchronizer>();
-
-        host_res_sync->sync_repository(res.texturesRepo);
-
     } catch (const std::exception& e) {
         std::cerr << "Network init error: " << e.what() << "\n";
         return GameState::Menu;
     }
 
+    player->get_object().send_full_snapshot();
+    PlayerObjectController controller(*player);
+    HostSender sender;
+
     double last_time = glfwGetTime();
     uint64_t tick_count = 0;
+
+    const float enemy_cooldown = 10.f;
+    float last_enemy_spawn = -2.f;
+    float spawn_radius = 1000.f;
+
+    std::vector<std::pair<AIObjectController, std::unique_ptr<ModuledEntity<VoxelObject>>>> enemies;
 
     while (!glfwWindowShouldClose(window)) {
         double current_time = glfwGetTime();
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
+        last_enemy_spawn += dt;
 
-        player->update(dt);
+        while (last_enemy_spawn > 0.f) {
+            enemies.push_back(spawn_enemy(scene, math::rotate_vec2({spawn_radius, 0.f}, rand() * 0.01f)));
+            last_enemy_spawn -= enemy_cooldown;
+        }
+
+#ifdef DEBUG_COLLISION
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+#endif
 
         controller.update(get_input());
 
+        for (auto& enemy : enemies) {
+            enemy.first.update(dt, player->get_object().global_position());
+        }
+
+        player->update(dt);
+
+        for (auto& enemy : enemies) {
+            enemy.second->update(dt);
+        }
+
+        scene.update(dt);
+
         if (has_client_connected) {
             tick_count++;
-            host_scene_sync->update(scene, tick_count);
+            std::optional<VoxelBatchUpdate> batch = player->get_object().get_voxel_batch();
+            if (batch.has_value()) {
+            sender.add_batch(batch.value());
+            }
+            sender.TriggerWork();
         }
 
         glfwPollEvents();
         Renderer::renderAll(0);
+
+#ifdef DEBUG_COLLISION
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#endif
         glfwSwapBuffers(window);
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             return GameState::Menu;
         }
     }
+
     return GameState::Exit;
 }
 
 // --- State: Client Loop ---
 GameState run_client() {
     const unsigned short PORT = 9090;
-    Scene scene;
+
+    std::unique_ptr<VoxelGrid> grid;
+    const size_t blank_texture_id = res.texturesRepo["blank"].iDesc;
+    const uv_rect blank_texture_uv = global_repo->atlas.get_uv(blank_texture_id);
+
+    auto snapshot_handler = [&](uint32_t object_id, uint32_t cols, uint32_t rows,
+                          std::string texture_name, const std::vector<VoxelStateUpdate>& updates) {
+        grid = VoxelGrid::create_from_snapshot(res.texturesRepo[texture_name].object, blank_texture_uv, updates);
+    };
+
+    auto damage_handler = [&](const VoxelBatchUpdate& batch) {
+        if (grid.get()) {
+            grid->apply_network_update(batch);
+        }
+    };
+
+    ClientReceiver receiver(snapshot_handler, damage_handler);
 
     try {
         std::cout << "Client: Connecting to 127.0.0.1:" << PORT << "\n";
@@ -583,57 +622,32 @@ GameState run_client() {
 
         has_client_connected = true;
 
-        client_res_sync = std::make_unique<net::ClientResourceSynchronizer>(
-            [&](const std::string& desc, uint32_t host_id) {
-                if (res.texturesRepo.contains(desc)) {
-                    std::cout << "Client: Mapped resource " << desc << "\n";
-                }
-            }
-        );
-
-        client_scene_sync = std::make_unique<net::ClientSceneSynchronizer>(scene, res, *global_repo);
-        client_res_sync->load_resources_mapping();
-
     } catch (const std::exception& e) {
         std::cerr << "Network connection error: " << e.what() << "\n";
         return GameState::Menu;
     }
 
     double last_time = glfwGetTime();
-    bool running = true;
 
-    auto sync_thread = std::thread([&]() {
-        while (running) {
-            try {
-                client_scene_sync->read_all();
-            } catch (const std::exception& e) {
-                std::cerr << "Network connection error: " << e.what() << "\n";
-                break;
-            }
-        }
-    });
+    while (grid.get() == nullptr) {
+        receiver.process_network_packets();
+    }
 
     while (!glfwWindowShouldClose(window)) {
         double current_time = glfwGetTime();
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
 
-        // Клиент получает состояние из сети, но локальный update все же нужен для интерполяции или предсказания
-        scene.update(dt);
+       receiver.process_network_packets();
 
         glfwPollEvents();
         Renderer::renderAll(0);
         glfwSwapBuffers(window);
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-            running = false;
-            sync_thread.join();
             return GameState::Menu;
         }
     }
-
-    running = false;
-    sync_thread.join();
 
     return GameState::Exit;
 }
@@ -642,10 +656,6 @@ GameState run_client() {
 GameState scene_state(GameState state) {
     has_client_connected = false;
     net::cleanup();
-    host_res_sync.reset();
-    client_res_sync.reset();
-    host_scene_sync.reset();
-    client_scene_sync.reset();
 
     switch (current_network_mode) {
         case NetworkMode::Host:
