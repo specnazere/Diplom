@@ -11,23 +11,7 @@ export module player_object_controller;
 export import moduled_entity;
 export import networked_voxel_object;
 export import camera;
-
-// Простая структура для состояния ввода
-// Можно заменить на polling из GLFW/SDL в месте вызова
-export struct InputState
-{
-    bool up    = false;
-    bool down  = false;
-    bool left  = false;
-    bool right = false;
-
-    bool rotate_left  = false;
-    bool rotate_right = false;
-
-    bool fire = false;
-
-    glm::vec2 globalCursorPosition{};
-};
+export import input_state;
 
 export class PlayerObjectController
 {

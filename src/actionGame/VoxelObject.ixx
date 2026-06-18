@@ -33,9 +33,9 @@ export import native_tcp;
 export enum class VoxelStatus : std::uint8_t
 {
     Absent   = 0,  // пустая ячейка
-    Active   = 1,  // живой воксель
-    Boundary = 2,  // граничный воксель
-    Destroyed = 3,
+    Destroyed,
+    Solid,
+    Boundary,
 };
 
 // ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ export struct Voxel
     VoxelStatus status = VoxelStatus::Absent;
     size_t      spriteIdx = ~size_t{0};
 
-    [[nodiscard]] bool is_alive()   const { return status >= VoxelStatus::Active && hp > 0.f; }
+    [[nodiscard]] bool is_alive()   const { return status >= VoxelStatus::Solid && hp > 0.f; }
     [[nodiscard]] bool has_sprite() const { return spriteIdx != ~size_t{0}; }
 };
 
@@ -282,13 +282,9 @@ public:
                             }
                         }
 
-                        // 3. Применяем импульс только к победителю
+                        // 3. Применяем импульс
                         if (best_target) {
-                            // Магнитуда импульса.
-                            // Если хочешь зависимость от расстояния, раскомментируй нужную строку:
-                            // float magnitude = explosion.impulse; // Константная сила
-                            // float magnitude = explosion.impulse * len_voxel; // Чем дальше, тем сильнее (как ты просил ранее)
-                            float magnitude = explosion.impulse / (len_voxel * len_voxel); // Классическое затухание (рекомендую)
+                            float magnitude = explosion.impulse / (len_voxel * len_voxel);
 
                             glm::vec2 impulse_vec = dir_voxel * magnitude;
                             best_target->apply_impulse_at(impulse_vec, dv.world_pos);
@@ -353,7 +349,7 @@ public:
 
                     const int ni = nr * cols_ + nc;
                     if (component[static_cast<size_t>(ni)] != -1) continue;
-                    if (voxels_[static_cast<size_t>(ni)].status == VoxelStatus::Absent) continue;
+                    if (!voxels_[static_cast<size_t>(ni)].is_alive()) continue;
 
                     component[static_cast<size_t>(ni)] = comp_id;
                     q.push(ni);
@@ -364,7 +360,7 @@ public:
         // Обходим все живые воксели
         for (int i = 0; i < total; ++i)
         {
-            if (voxels_[static_cast<size_t>(i)].status == VoxelStatus::Absent) continue;
+            if (!voxels_[static_cast<size_t>(i)].is_alive()) continue;
             if (component[static_cast<size_t>(i)] != -1) continue;
             bfs(i, num_components++);
         }
@@ -410,7 +406,6 @@ public:
                 ),
                 true)));
             VoxelObject& frag = *fragments.back();
-            //frag.recalculate_physic();
 
             // Переносим воксели этого компонента
             for (int i = 0; i < total; ++i)
@@ -420,12 +415,11 @@ public:
                 Voxel& src = voxels_[static_cast<size_t>(i)];
                 Voxel& dst = frag.voxels_[static_cast<size_t>(i)];
 
-                dst = src;           // копируем данные вокселя (center, hp, spriteIdx)
+                dst = src;
+                dst.spriteIdx = repo.addSprite(repo.dataFromSpriteIdx(src.spriteIdx), frag.grid_center_transform_);
                 repo.dataFromSpriteIdx(dst.spriteIdx).transformIdx = frag.grid_center_transform_;
 
-                // Забираем спрайт из текущего объекта
-                src.spriteIdx = ~size_t{0};
-                src.status    = VoxelStatus::Absent;
+                destroy_voxel(src);
             }
 
             frag.recalculate_physic();
@@ -684,7 +678,7 @@ public:
     }
 #endif
 
-private:
+protected:
     void build_local_chunks()
     {
         GridBoundary bound = {
@@ -788,7 +782,7 @@ private:
                     if (tex_.colorData[pixel_idx * 4 + 3] <= alpha_threshold) continue;
                 }
 
-                vx.status = VoxelStatus::Active;
+                vx.status = VoxelStatus::Solid;
 
                 SpriteData sd;
                 sd.width      = cs;
@@ -867,7 +861,7 @@ private:
                     voxels_[i - 1].is_alive() &&
                     voxels_[i + cols_].is_alive() &&
                     voxels_[i - cols_].is_alive()
-                ) voxels_[i].status = VoxelStatus::Active;
+                ) voxels_[i].status = VoxelStatus::Solid;
                 else {
                     voxels_[i].status = VoxelStatus::Boundary;
                 }
@@ -884,14 +878,13 @@ private:
         return boundary_voxels;
     }
 
-    void destroy_voxel(Voxel& vx)
+    static void destroy_voxel(Voxel& vx)
     {
-        if (vx.has_sprite())
-        {
-            SpritesRepository::get_active().removeSprite(vx.spriteIdx);
-            vx.spriteIdx = ~size_t{0};
+        if (vx.has_sprite()) {
+            SpritesRepository::get_active().getDataPointer(vx.spriteIdx)->depth = 10;
         }
-        vx.status = VoxelStatus::Absent;
+        vx.hp = 0;
+        vx.status = VoxelStatus::Destroyed;
     }
 
 protected:

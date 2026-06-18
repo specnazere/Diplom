@@ -160,7 +160,7 @@ public:
 
     // --- Управление Спрайтами ---
 
-    size_t addSprite(const SpriteData& data, size_t transformIdx = ~size_t{0})
+    size_t addSprite(SpriteData data, size_t transformIdx = ~size_t{0})
     {
         // 1. Добавляем данные в плотный массив
         const size_t new_data_idx = sprite_data_.size();
@@ -175,7 +175,7 @@ public:
             sprites_[sprite_idx] = Sprite{};
         } else {
             sprite_idx = sprites_.size();
-            sprites_.push_back(Sprite{});
+            sprites_.emplace_back();
         }
 
         Sprite& s = sprites_[sprite_idx];

@@ -15,6 +15,8 @@ export import texture;
 export import sprite_repository;
 export import camera;
 export import voxel_health_protocol;
+export import native_tcp;
+export import input_state;
 
 export
 enum overlays : uint8_t
@@ -69,6 +71,7 @@ private:
     size_t main_transform_;
 
     overlays current_overlay_;
+    float heal_radius_ = 0.f;
 
 public:
 
@@ -140,6 +143,67 @@ public:
         return;
     }
 
+    void set_overlay(overlays overlay)
+    {
+        SpritesRepository& repo = SpritesRepository::get_active();
+
+        for (int row = 0; row < rows_; ++row) {
+
+            for (int col = 0; col < cols_; ++col) {
+                Voxel& vx = voxels_[row * cols_ + col];
+
+                repo.dataFromSpriteIdx(vx.sprite_index).color = vx.overlays[overlay];
+            }
+        }
+    }
+
+    void update(float dt)
+    {
+        heal_radius_ = 25;
+    }
+
+    void process_input(InputState input)
+    {
+        if (input.fire) {
+            glm::vec2 heal_point = input.globalCursorPosition;
+
+            //heal_point -= glm::vec2{cols_, rows_} * 0.5f;
+
+            int start_col = heal_point.x - heal_radius_ + cols_ * 0.5f;
+            int end_col   = heal_point.x + heal_radius_ + cols_ * 0.5f + 1;
+            int start_row = heal_point.y - heal_radius_ + rows_ * 0.5f;
+            int end_row   = heal_point.y + heal_radius_ + rows_ * 0.5f + 1;
+
+            start_col = std::max(0, start_col);
+            end_col   = std::min(static_cast<int>(cols_), end_col);
+            start_row = std::max(0, start_row);
+            end_row   = std::min(static_cast<int>(rows_), end_row);
+
+            std::vector<VoxelStateUpdate> updates;
+
+            float center_col = heal_point.x + cols_ * 0.5f;
+            float center_row = heal_point.y + rows_ * 0.5f;
+
+            for (int r = start_row; r < end_row; ++r) {
+            for (int c = start_col; c < end_col; ++c) {
+                float dx = c - center_col;
+                float dy = r - center_row;
+                size_t idx = r * cols_ + c;
+
+                if (voxels_[idx].max_health != 0.f && dx * dx + dy * dy <= heal_radius_ * heal_radius_) {
+                    if (voxels_[idx].health != voxels_[idx].max_health) {
+                        voxels_[idx].health = std::min(voxels_[idx].max_health, voxels_[idx].health + 1.f);
+                        updates.emplace_back(idx, voxels_[idx].health);
+                    }
+                    voxels_[idx].overlays.health_color = health_color(voxels_[idx]);
+                }
+            }}
+
+            send_heal_command(0, updates);
+            set_overlay(current_overlay_);
+        }
+    }
+
     // В VoxelGrid или SceneManager
     static std::unique_ptr<VoxelGrid> create_from_snapshot(
         const texture& tex,
@@ -159,10 +223,7 @@ public:
             vx.health = upd.health;
             vx.max_health = vx.health;
 
-            vx.overlays.health_color = health_color(
-                static_cast<float>(vx.health),
-                static_cast<float>(vx.max_health)
-            );
+            vx.overlays.health_color = health_color(vx);
 
             if (grid->current_overlay_ == healthOverlay) {
                 repo.dataFromSpriteIdx(vx.sprite_index).color = vx.overlays.health_color;
@@ -172,20 +233,10 @@ public:
         return grid;
     }
 
-    void set_overlay(overlays overlay)
+    static glm::u8vec4 health_color(const Voxel& voxel)
     {
-        SpritesRepository& repo = SpritesRepository::get_active();
-
-        for (int row = 0; row < rows_; ++row)
-        for (int col = 0; col < cols_; ++col) {
-            Voxel& vx = voxels_[row * cols_ + col];
-
-             repo.dataFromSpriteIdx(vx.sprite_index).color = vx.overlays[overlay];
-        }
-    }
-
-    static glm::u8vec4 health_color(float health, float max_health)
-    {
+        const float& health = voxel.health;
+        const float& max_health = voxel.max_health;
 
         float diff = health / max_health;
         diff = std::clamp(diff, 0.0f, 1.0f);
@@ -227,12 +278,28 @@ public:
             vx.health = static_cast<int>(upd.health);
 
             // Пересчитываем цвет оверлея здоровья
-            vx.overlays.health_color = health_color(static_cast<float>(vx.health), static_cast<float>(vx.max_health));
+            vx.overlays.health_color = health_color(vx);
 
             // Если сейчас включен оверлей здоровья, обновляем цвет спрайта
             if (current_overlay_ == healthOverlay) {
                 repo.dataFromSpriteIdx(vx.sprite_index).color = vx.overlays.health_color;
             }
+        }
+    }
+
+    static void send_heal_command(uint32_t object_id, const std::vector<VoxelStateUpdate>& updates) {
+        if (updates.empty()) return;
+
+        constexpr size_t CHUNK_SIZE = 128;
+        VoxelHealCommand cmd{};
+        cmd.object_id = object_id;
+
+        for (size_t offset = 0; offset < updates.size(); offset += CHUNK_SIZE) {
+            const size_t count = std::min(CHUNK_SIZE, updates.size() - offset);
+            cmd.count = static_cast<uint32_t>(count);
+
+            std::copy_n(updates.begin() + offset, count, cmd.updates);
+            net::send_typed(cmd);
         }
     }
 };

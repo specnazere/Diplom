@@ -63,3 +63,13 @@ struct VoxelSnapshotChunk {
     VoxelStateUpdate updates[512];
 };
 static_assert(std::is_trivially_copyable_v<VoxelSnapshotChunk>);
+
+// Команда от клиента на лечение/восстановление
+export struct VoxelHealCommand {
+    static constexpr uint32_t tcp_type_id = 4;
+
+    uint32_t object_id;
+    uint32_t count;
+    VoxelStateUpdate updates[128]; // health = новое значение HP
+};
+static_assert(std::is_trivially_copyable_v<VoxelHealCommand>);

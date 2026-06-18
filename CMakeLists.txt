@@ -98,9 +98,12 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/netcode/voxelHealthProtocol.ixx
         src/netcode/HostSender.ixx
         src/netcode/ClientReceiver.ixx
+        src/netcode/HostReceiver.ixx
+        src/netcode/ClientSender.ixx
 
         src/misc/Multitype_index_repository.ixx
         src/misc/Additional_math.ixx
+        src/misc/InputState.ixx
 
         src/Game.ixx
 )

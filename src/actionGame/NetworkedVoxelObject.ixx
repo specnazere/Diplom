@@ -131,4 +131,36 @@ public:
             net::send_typed(chunk);
         }
     }
+
+    void apply_heal_command(const VoxelHealCommand& cmd) {
+        if (cmd.object_id != network_id_) return;
+
+        auto& repo = SpritesRepository::get_active();
+
+        for (uint32_t i = 0; i < cmd.count; ++i) {
+            const auto& upd = cmd.updates[i];
+            int col = upd.voxel_idx % grid_cols();
+            int row = upd.voxel_idx / grid_cols();
+
+            Voxel* vx = voxel_at(col, row);
+            if (!vx) continue;
+
+            // Если воксель был уничтожен, восстанавливаем его
+            if (vx->status == VoxelStatus::Destroyed || vx->hp <= 0.f) {
+                vx->status = VoxelStatus::Solid;
+                vx->hp = upd.health;
+
+                repo.dataFromSpriteIdx(vx->spriteIdx).depth = 0.f;
+            } else {
+                // Просто обновляем HP
+                vx->hp = upd.health;
+            }
+
+            // Триггерим хук, чтобы изменения ушли в сеть
+            on_voxel_damaged(col, row);
+        }
+
+        // Пересчитываем физику после изменений
+        recalculate_physic();
+    }
 };

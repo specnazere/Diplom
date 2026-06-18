@@ -53,6 +53,8 @@ import voxel_grid;
 import native_tcp;
 import networked_voxel_object;
 import client_receiver;
+import client_sender;
+import host_receiver;
 
 export namespace game {
 
@@ -171,7 +173,7 @@ std::pair<AIObjectController, std::unique_ptr<ModuledEntity<VoxelObject>>> spawn
         spaceship_texture_uv,
         kinetic_parameters (10.f, 100.f),
         glm::vec2(10.f, 10.f),
-        explosion_data(10.f, 100.f, 10000.f),
+        explosion_data(25.f, 100.f, 10000.f),
         500.f,
         glm::vec2(150.f, 0.f),
         glm::vec2(1000.f, 0.f)
@@ -466,14 +468,15 @@ GameState grid_scene()
     const size_t blank_texture_id = res.texturesRepo["blank"].iDesc;
     const uv_rect blank_texture_uv = global_repo->atlas.get_uv(blank_texture_id);
 
-    VoxelGrid(spaceship_texture, blank_texture_uv, 10.f);
+    VoxelGrid grid(spaceship_texture, blank_texture_uv, 10.f);
 
     while (!glfwWindowShouldClose(window)) {
         double current_time = glfwGetTime();
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
 
-        // code
+        grid.update(dt);
+        grid.process_input(get_input());
 
         glfwPollEvents();
         Renderer::renderAll(0);
@@ -537,6 +540,11 @@ GameState run_host() {
 
     std::vector<std::pair<AIObjectController, std::unique_ptr<ModuledEntity<VoxelObject>>>> enemies;
 
+    auto heal_handler = [&player](const VoxelHealCommand& cmd) {
+        player->get_object().apply_heal_command(cmd);
+    };
+    HostReceiver receiver(heal_handler);
+
     while (!glfwWindowShouldClose(window)) {
         double current_time = glfwGetTime();
         float dt = static_cast<float>(current_time - last_time);
@@ -569,10 +577,12 @@ GameState run_host() {
         scene.update(dt);
 
         if (has_client_connected) {
+            receiver.process_commands();
+
             tick_count++;
             std::optional<VoxelBatchUpdate> batch = player->get_object().get_voxel_batch();
             if (batch.has_value()) {
-            sender.add_batch(batch.value());
+                sender.add_batch(batch.value());
             }
             sender.TriggerWork();
         }
@@ -627,6 +637,8 @@ GameState run_client() {
         return GameState::Menu;
     }
 
+    ClientSender sender;
+
     double last_time = glfwGetTime();
 
     while (grid.get() == nullptr) {
@@ -638,7 +650,10 @@ GameState run_client() {
         float dt = static_cast<float>(current_time - last_time);
         last_time = current_time;
 
-       receiver.process_network_packets();
+        receiver.process_network_packets();
+
+        grid->update(dt);
+        grid->process_input(get_input());
 
         glfwPollEvents();
         Renderer::renderAll(0);
