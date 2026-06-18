@@ -7,7 +7,7 @@
 
 struct voxel_object_params
 {
-    float cell_size;  // размер одной ячейки в мировых единицах
+    float cell_size;
     float default_hp;
     float depth;
     float paralax;

@@ -31,10 +31,10 @@ public:
     NetworkedVoxelObject(
         uint32_t net_id,
         const texture& tex,
-        const size_t texture_id,
+        size_t texture_id,
         const std::string& tex_name,
-        const uv_rect& local_UV,
-        const voxel_object_params& params = standart_params,
+        uv_rect local_UV,
+        voxel_object_params params = standart_params,
         bool chipped = false,
         unsigned char alpha_threshold = 0)
         : VoxelObject(tex, texture_id, local_UV, params, chipped, alpha_threshold)
@@ -47,7 +47,7 @@ public:
     uint32_t get_network_id() const { return network_id_; }
 
 protected:
-    // Переопределяем хук базового класса
+    // хук базового класса
     void on_voxel_damaged(int col, int row) override
     {
         const Voxel* vx = voxel_at(col, row);
@@ -61,7 +61,6 @@ protected:
     }
 
 public:
-    // Вызывается в сетевом тике (например, из GameLoop)
     std::optional<VoxelBatchUpdate> get_voxel_batch()
     {
         if (dirty_buffer_.empty())
@@ -104,7 +103,7 @@ public:
 
         uint32_t total = static_cast<uint32_t>(active_voxels.size());
 
-        // 1. Отправляем метаданные
+        // метаданные
         VoxelSnapshotMetadata meta{};
         meta.object_id = network_id_;
         meta.cols = static_cast<uint32_t>(grid_cols());
@@ -117,7 +116,7 @@ public:
 
         net::send_typed(meta);
 
-        // 2. Отправляем чанки
+        // чанки
         constexpr uint32_t chunk_capacity = 512;
         for (uint32_t i = 0; i < total; i += chunk_capacity) {
             VoxelSnapshotChunk chunk{};
@@ -145,22 +144,17 @@ public:
             Voxel* vx = voxel_at(col, row);
             if (!vx) continue;
 
-            // Если воксель был уничтожен, восстанавливаем его
             if (vx->status == VoxelStatus::Destroyed || vx->hp <= 0.f) {
                 vx->status = VoxelStatus::Solid;
                 vx->hp = upd.health;
 
-                repo.dataFromSpriteIdx(vx->spriteIdx).depth = 0.f;
+                repo.data_from_sprite_idx(vx->spriteIdx).depth = 0.f;
             } else {
-                // Просто обновляем HP
                 vx->hp = upd.health;
             }
 
-            // Триггерим хук, чтобы изменения ушли в сеть
-            on_voxel_damaged(col, row);
+            // on_voxel_damaged(col, row);
         }
-
-        // Пересчитываем физику после изменений
         recalculate_physic();
     }
 };

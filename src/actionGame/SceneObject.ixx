@@ -10,12 +10,14 @@ module;
 #include <memory>
 #include <vector>
 
+#ifdef DEBUG_COLLISION
 #include "imgui/imgui_impl_opengl3_loader.h"
+#endif
 
 export module scene_object;
 
-import physic_object;
-import destructible_object;
+export import physic_object;
+export import destructible_object;
 
 export
 namespace events
@@ -30,7 +32,7 @@ namespace events
 
     struct SceneEvent
     {
-        virtual ~SceneEvent() {}
+        virtual ~SceneEvent() = default;
         virtual eventType type() {return emptyEvent;}
     };
 }
@@ -41,10 +43,10 @@ class SceneObject : public PhysicObject, public DestructibleObject
 public:
     using EventInvokingFunction = void(void* context, std::vector<std::unique_ptr<events::SceneEvent>>& new_events);
 
-    virtual void onConnectInit(void* context, EventInvokingFunction* func, const size_t& id) = 0;
-    virtual const size_t& id() = 0;
-    virtual void invokeEventsFromThis(std::vector<std::unique_ptr<events::SceneEvent>>) = 0;
-    virtual const size_t& get_parent_texture() const = 0;
+    virtual void on_connect_init(void* context, EventInvokingFunction* func, size_t id) = 0;
+    [[nodiscard]] virtual size_t id() const = 0;
+    virtual void invoke_events_from_this(std::vector<std::unique_ptr<events::SceneEvent>>) = 0;
+    [[nodiscard]] virtual size_t get_parent_texture() const = 0;
 
 #ifdef DEBUG_COLLISION
     virtual void DebugDraw() const = 0;
@@ -59,7 +61,7 @@ namespace events
         explosion_data explosion;
         glm::vec2 position;
 
-        SpawnExplosion(const explosion_data& explosion_data_input, const glm::vec2& position_input)
+        SpawnExplosion(explosion_data explosion_data_input, glm::vec2 position_input)
             : explosion(explosion_data_input)
             , position(position_input)
         {}
@@ -91,27 +93,4 @@ namespace events
             return addObjectEvent;
         }
     };
-
-    // struct SpawnVoxelObject : SceneEvent
-    // {
-    //     size_t texture_id;
-    //     voxel_object_params params;
-    //     eventType type() override {
-    //         return selfDestructEvent;
-    //     }
-    // };
-    //
-    // struct SpawnProjectile : SceneEvent
-    // {
-    //     size_t texture_id;
-    //     kinetic_parameters kinetic;
-    //     glm::vec2 size;
-    //     explosion_data explosion;
-    //     glm::vec2 position;
-    //     glm::vec2 velocity;
-    //
-    //     eventType type() override {
-    //         return spawnProjectileEvent;
-    //     }
-    // };
 }

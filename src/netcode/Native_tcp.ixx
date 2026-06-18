@@ -53,13 +53,12 @@ namespace detail {
     }
 }
 
-// Структура для неизвестного пакета
 export struct UnknownPacket {
-    uint32_t type_id;
+    uint32_t type_id{};
     std::vector<uint8_t> payload;
 };
 
-// --- SERVER SIDE ---
+// server
 export void listen_start(unsigned short port, int backlog = 1) {
     detail::ensure_init();
     detail::g_is_server = true;
@@ -92,7 +91,7 @@ export bool accept_connection(int timeout_ms = 5000) {
     return true;
 }
 
-// --- CLIENT SIDE ---
+// client
 export void connect_to_host(const std::string& ip, unsigned short port) {
     detail::ensure_init();
     detail::g_is_server = false;
@@ -113,7 +112,7 @@ export void connect_to_host(const std::string& ip, unsigned short port) {
     detail::g_sock = sock;
 }
 
-// --- COMMON ---
+// other
 SOCKET get_active_socket() {
     if (detail::g_is_server) {
         if (detail::g_client_sock == INVALID_SOCKET) throw std::runtime_error("No client connected");

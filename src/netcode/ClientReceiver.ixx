@@ -20,7 +20,6 @@ export import native_tcp;
 export
 class ClientReceiver {
 public:
-    // Коллбэки для обработки данных
     using SnapshotCallback = std::function<void(
         uint32_t object_id,
         uint32_t cols,
@@ -51,7 +50,6 @@ public:
         , on_damage_batch_(std::move(damage_cb))
     {}
 
-    // Вызывать из игрового цикла. Неблокирующий (таймаут 1мс).
     void process_network_packets() {
         try {
             net::UnknownPacket packet = net::receive_unknown(1);

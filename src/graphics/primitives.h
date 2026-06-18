@@ -4,6 +4,7 @@
 
 #ifndef PRIMITIVES_H
 #define PRIMITIVES_H
+
 #include <glm/fwd.hpp>
 
 constexpr glm::float32 square_vertices[] = {

@@ -22,8 +22,7 @@ export module recursive_hitbox;
 
 namespace collision_math
 {
-    // Поворот вектора на угол (радианы)
-    inline glm::vec2 rotate_vec(glm::vec2 v, float angle)
+    [[nodiscard]] inline glm::vec2 rotate_vec(glm::vec2 v, float angle)
     {
         const float c = std::cos(angle);
         const float s = std::sin(angle);
@@ -31,20 +30,17 @@ namespace collision_math
                  v.x * s + v.y * c };
     }
 
-    // Локальное пространство объекта → мировое
-    inline glm::vec2 local_to_world(glm::vec2 local, glm::vec2 pos, float angle)
+    [[nodiscard]] inline glm::vec2 local_to_world(glm::vec2 local, glm::vec2 pos, float angle)
     {
         return pos + rotate_vec(local, angle);
     }
 
-    // Мировое → локальное пространство объекта
-    inline glm::vec2 world_to_local(glm::vec2 world, glm::vec2 pos, float angle)
+    [[nodiscard]] inline glm::vec2 world_to_local(glm::vec2 world, glm::vec2 pos, float angle)
     {
         return rotate_vec(world - pos, -angle);
     }
 
-    // Прямо из локального пространства A в локальное пространство B
-    inline glm::vec2 a_local_to_b_local(glm::vec2 p,
+    [[nodiscard]] inline glm::vec2 a_local_to_b_local(glm::vec2 p,
                                          glm::vec2 posA, float angleA,
                                          glm::vec2 posB, float angleB)
     {
@@ -52,7 +48,10 @@ namespace collision_math
     }
 
     bool rects_intersect(
-    glm::vec2 center_a_local_b, float angle_a_rel_b, glm::vec2 size_a, glm::vec2 size_b)
+        glm::vec2 center_a_local_b,
+        float angle_a_rel_b,
+        glm::vec2 size_a,
+        glm::vec2 size_b)
     {
         glm::vec2 h_a = size_a * 0.5f;
         glm::vec2 h_b = size_b * 0.5f;
@@ -78,7 +77,10 @@ namespace collision_math
     }
 
     glm::vec2 get_contact_point(
-        glm::vec2 center_a_local_b, float angle_a_rel_b, glm::vec2 size_a, glm::vec2 size_b)
+        glm::vec2 center_a_local_b,
+        float angle_a_rel_b,
+        glm::vec2 size_a,
+        glm::vec2 size_b)
     {
         glm::vec2 h_a = size_a * 0.5f;
         glm::vec2 h_b = size_b * 0.5f;
@@ -87,7 +89,7 @@ namespace collision_math
         float abs_c = std::abs(c);
         float abs_s = std::abs(s);
 
-        // 1. Переменные для хранения данных осей
+        // хранениe данных осей
         float overlaps[4];
         float r_a_x = h_a.x * abs_c + h_a.y * abs_s;
         float r_a_y = h_a.x * abs_s + h_a.y * abs_c;
@@ -96,13 +98,13 @@ namespace collision_math
         float r_b_x = h_b.x * abs_c + h_b.y * abs_s;
         float r_b_y = h_b.x * abs_s + h_b.y * abs_c;
 
-        // 2. Вычисляем глубину проникновения для всех 4 осей
+        // глубина проникновения для всех осей
         overlaps[0] = (r_a_x + h_b.x) - std::abs(center_a_local_b.x); // Ось X прямоугольника B
         overlaps[1] = (r_a_y + h_b.y) - std::abs(center_a_local_b.y); // Ось Y прямоугольника B
         overlaps[2] = (h_a.x + r_b_x) - std::abs(dot_ax);             // Ось X прямоугольника A
         overlaps[3] = (h_a.y + r_b_y) - std::abs(dot_ay);             // Ось Y прямоугольника A
 
-        // 3. Находим ось с минимальным проникновением (опорную грань)
+        // ось с минимальным проникновением
         int min_idx = 0;
         float min_overlap = overlaps[0];
         for (int i = 1; i < 4; ++i) {
@@ -114,42 +116,42 @@ namespace collision_math
 
         glm::vec2 contact_local_b;
 
-        // 4. Вычисляем середину отрезка пересечения на опорной грани
-        if (min_idx == 0) { // Опорная грань на B (локальная X)
+        // середина отрезка пересечения на опорной грани
+        if (min_idx == 0) {
             contact_local_b.x = (center_a_local_b.x > 0 ? 1.0f : -1.0f) * h_b.x;
             float y_min = std::max(-h_b.y, center_a_local_b.y - r_a_y);
             float y_max = std::min(h_b.y, center_a_local_b.y + r_a_y);
             contact_local_b.y = (y_min + y_max) * 0.5f;
         }
-        else if (min_idx == 1) { // Опорная грань на B (локальная Y)
+        else if (min_idx == 1) {
             contact_local_b.y = (center_a_local_b.y > 0 ? 1.0f : -1.0f) * h_b.y;
             float x_min = std::max(-h_b.x, center_a_local_b.x - r_a_x);
             float x_max = std::min(h_b.x, center_a_local_b.x + r_a_x);
             contact_local_b.x = (x_min + x_max) * 0.5f;
         }
-        else if (min_idx == 2) { // Опорная грань на A (локальная X)
-            float nax = dot_ax > 0 ? -1.0f : 1.0f; // Нормаль в локальных координатах A
+        else if (min_idx == 2) {
+            float nax = dot_ax > 0 ? -1.0f : 1.0f;
             glm::vec2 pt_a;
             pt_a.x = nax * h_a.x;
-            // Пересечение проекций на локальную Y ось A
+
             float ay_min = std::max(-h_a.y, -dot_ay - r_b_y);
             float ay_max = std::min(h_a.y, -dot_ay + r_b_y);
             pt_a.y = (ay_min + ay_max) * 0.5f;
 
-            // Трансформируем точку из локальных координат A в локальные координаты B
+            // из локальных координат A в локальные координаты B
             contact_local_b.x = pt_a.x * c - pt_a.y * s + center_a_local_b.x;
             contact_local_b.y = pt_a.x * s + pt_a.y * c + center_a_local_b.y;
         }
-        else { // min_idx == 3, Опорная грань на A (локальная Y)
+        else {
             float nay = dot_ay > 0 ? -1.0f : 1.0f;
             glm::vec2 pt_a;
             pt_a.y = nay * h_a.y;
-            // Пересечение проекций на локальную X ось A
+
             float ax_min = std::max(-h_a.x, -dot_ax - r_b_x);
             float ax_max = std::min(h_a.x, -dot_ax + r_b_x);
             pt_a.x = (ax_min + ax_max) * 0.5f;
 
-            // Трансформируем точку из локальных координат A в локальные координаты B
+            // из локальных координат A в локальные координаты B
             contact_local_b.x = pt_a.x * c - pt_a.y * s + center_a_local_b.x;
             contact_local_b.y = pt_a.x * s + pt_a.y * c + center_a_local_b.y;
         }
@@ -194,7 +196,7 @@ private:
     bool leaf_ = false;
 
 #ifdef DEBUG_COLLISION
-    // Вспомогательная функция для отрисовки залитого прямоугольника
+    // отрисовка залитого прямоугольника
     static void drawRect(const glm::vec2& world_pos, float angle, const glm::vec2& size, ImU32 color, ImU32 fill = 0)
     {
         ImDrawList* draw_list = ImGui::GetForegroundDrawList();
@@ -227,12 +229,12 @@ private:
 public:
     RecursiveHitbox(
         const GridBoundary& boundary,
-        const size_t& base,
-        const glm::vec2& initial_size,
-        const glm::vec2& center,
+        size_t base,
+        glm::vec2 initial_size,
+        glm::vec2 center,
         const haveSolidFunc& have_solid_func = standardFunc,
         bool update_solindess = true,
-        const glm::vec2& shift = {})
+        glm::vec2 shift = {})
         : boundary_(boundary)
         , size_(initial_size)
         , center_(center)
@@ -322,11 +324,11 @@ public:
         }
 
         if (update_solindess) {
-            updateSolidness(have_solid_func);
+            update_solidness(have_solid_func);
         }
     }
 
-    void updateSolidness(const haveSolidFunc& have_solid_func)
+    void update_solidness(const haveSolidFunc& have_solid_func)
     {
         if (leaf_) {
             if (have_solid_func(boundary_)) {
@@ -339,7 +341,7 @@ public:
 
             fully_solid_ = true;
             for (RecursiveHitbox& hitbox : hitboxes_) {
-                hitbox.updateSolidness(have_solid_func);
+                hitbox.update_solidness(have_solid_func);
                 if (hitbox.is_solid_) {
                     is_solid_ = true;
                 }
@@ -432,10 +434,7 @@ public:
                 }
                 case 0b11:
                 {
-                    // Передаем уже корректный center_a_local_b
                     glm::vec2 local_contact = collision_math::get_contact_point(center_a_local_b, rel_angle, sizeA, sizeB);
-
-                    // ИСПРАВЛЕНИЕ 2: Точка в локальном пространстве B, поэтому используем posB и angB
                     add_contact(local_contact, posB, angB);
 
 #ifdef DEBUG_COLLISION
@@ -470,7 +469,7 @@ public:
     }
 #endif
 
-    const glm::vec2& get_size() const
+    [[nodiscard]] glm::vec2 get_size() const
     {
         return size_;
     }

@@ -42,7 +42,7 @@ private:
     }
 
 public:
-    static const glm::mat4& get_view()
+    [[nodiscard]] static const glm::mat4& get_view()
     {
         return view_;
     }
@@ -56,50 +56,50 @@ public:
         reload_view();
     }
 
-    static void add_pos(const float& x, const float& y)
+    static void add_pos(float x, float y)
     {
         pos_x_ += x;
         pos_y_ += y;
         reload_view();
     }
 
-    static void set_pos(const float& x, const float& y)
+    static void set_pos(float x, float y)
     {
         pos_x_ = x;
         pos_y_ = y;
         reload_view();
     }
 
-    static void mult_scale(const float& scale)
+    static void mult_scale(float scale)
     {
         scale_ *= scale;
         reload_view();
     }
 
-    static void set_scale(const float& scale)
+    static void set_scale(float scale)
     {
         scale_ = scale;
         reload_view();
     }
 
-    static void set_frame_size(const int& width, const int& height)
+    static void set_frame_size(int width, int height)
     {
         frame_width_ = width;
         frame_height_ = height;
         reload_view();
     }
 
-    static const float& get_scale()
+    [[nodiscard]] static float get_scale()
     {
         return scale_;
     }
 
-    static const int& get_frame_width()
+    [[nodiscard]] static int get_frame_width()
     {
         return frame_width_;
     }
 
-    static const int& get_frame_height()
+    [[nodiscard]] static int get_frame_height()
     {
         return frame_height_;
     }

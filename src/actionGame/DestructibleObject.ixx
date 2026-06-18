@@ -15,5 +15,5 @@ class DestructibleObject
 public:
     virtual ~DestructibleObject() = default;
 
-    virtual void area_damage(const explosion_data&, const glm::vec2& position) = 0;
+    virtual void area_damage(explosion_data, glm::vec2 position) = 0;
 };

@@ -84,7 +84,7 @@ public:
         if (cols_ <= 0 || rows_ <= 0) return;
 
         SpritesRepository& repo = SpritesRepository::get_active();
-        main_transform_ = repo.createTransform();
+        main_transform_ = repo.create_transform();
 
         voxels_.resize(cols_ * rows_);
 
@@ -127,7 +127,7 @@ public:
                 sd.transformIdx = main_transform_;
                 sd.color = {255, 255, 255, 255};
 
-                vx.sprite_index = repo.addSprite(sd);
+                vx.sprite_index = repo.add_sprite(sd);
                 repo[vx.sprite_index].textureDesc = tex_desc;
             }
 
@@ -152,7 +152,7 @@ public:
             for (int col = 0; col < cols_; ++col) {
                 Voxel& vx = voxels_[row * cols_ + col];
 
-                repo.dataFromSpriteIdx(vx.sprite_index).color = vx.overlays[overlay];
+                repo.data_from_sprite_idx(vx.sprite_index).color = vx.overlays[overlay];
             }
         }
     }
@@ -204,17 +204,13 @@ public:
         }
     }
 
-    // В VoxelGrid или SceneManager
     static std::unique_ptr<VoxelGrid> create_from_snapshot(
         const texture& tex,
         uv_rect blank_uv,
         const std::vector<VoxelStateUpdate>& updates)
     {
-
-        // Создаём VoxelGrid с найденной текстурой
         auto grid = std::make_unique<VoxelGrid>(tex, blank_uv, 1.f);
 
-        // Применяем здоровье из снапшота
         SpritesRepository& repo = SpritesRepository::get_active();
         for (const auto& upd : updates) {
             if (upd.voxel_idx >= grid->voxels_.size()) continue;
@@ -226,7 +222,7 @@ public:
             vx.overlays.health_color = health_color(vx);
 
             if (grid->current_overlay_ == healthOverlay) {
-                repo.dataFromSpriteIdx(vx.sprite_index).color = vx.overlays.health_color;
+                repo.data_from_sprite_idx(vx.sprite_index).color = vx.overlays.health_color;
             }
         }
 
@@ -282,7 +278,7 @@ public:
 
             // Если сейчас включен оверлей здоровья, обновляем цвет спрайта
             if (current_overlay_ == healthOverlay) {
-                repo.dataFromSpriteIdx(vx.sprite_index).color = vx.overlays.health_color;
+                repo.data_from_sprite_idx(vx.sprite_index).color = vx.overlays.health_color;
             }
         }
     }

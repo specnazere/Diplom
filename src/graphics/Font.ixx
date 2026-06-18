@@ -19,9 +19,9 @@ module;
 
 export module font;
 
-import atlas;
-import texture;
-import multitype_index_repository;
+export import atlas;
+export import texture;
+export import multitype_index_repository;
 
 export
 class Font {
@@ -44,12 +44,11 @@ private:
 
 public:
     const std::string name;
-    int size;
+    int size{};
 
-    // Данные для отложенной растеризации
     unsigned char* ttf_data = nullptr;
-    unsigned long long ttf_size;
-    stbtt_fontinfo font_info;
+    unsigned long long ttf_size{};
+    stbtt_fontinfo font_info{};
 
     Font(const std::string& name) :
         name(name)
@@ -63,18 +62,17 @@ public:
             ttf_data = nullptr;
         }
     }
-    // Font& operator=(const Font&) = delete;
 
     bool has_glyph(char32_t ch) const {
         return glyphs_.find(ch) != glyphs_.end();
     }
 
-    const glyph_info& get_glyph(const char32_t &ch) const {
+    [[nodiscard]] const glyph_info& get_glyph(char32_t ch) const {
         auto it = glyphs_.find(ch);
         if (it != glyphs_.end()) {
             return it->second;
         }
-        // Возвращаем дефолтный или кидаем исключение, в зависимости от политики
+
         static glyph_info empty_glyph;
         return empty_glyph;
     }
@@ -83,13 +81,13 @@ public:
         return max_glyph_height;
     }
 
-    static std::string getCodepointStr(char32_t cp) {
+    static std::string get_codepoint_str(char32_t cp) {
         std::ostringstream oss;
         oss << "U+" << std::uppercase << std::setfill('0') << std::setw(4) << std::hex << static_cast<uint32_t>(cp);
         return oss.str();
     }
 
-    void bakeGlyphs(const std::set<char32_t>& charset, repository<texture>& texturesRepo, const int& bake_size)
+    void bake_glyphs(const std::set<char32_t>& charset, repository<texture>& texturesRepo, int bake_size)
     {
         size = bake_size;
 
@@ -114,7 +112,6 @@ public:
             stbtt_GetCodepointHMetrics(info, static_cast<int>(c), &adv, nullptr);
             int advance = static_cast<int>(adv * scale);
 
-            // Пустые глифы (пробел и т.д.) — создаём запись без текстуры
             if (!bitmap || width == 0 || height == 0) {
                 if (bitmap) stbtt_FreeBitmap(bitmap, nullptr);
 
@@ -130,12 +127,10 @@ public:
                 for (const char32_t& c2 : charset)
                     final_glyph.kern[c2] = stbtt_GetCodepointKernAdvance(info, static_cast<int>(c2), static_cast<int>(c)) * scale;
 
-                // UV нулевые, текстуры нет
                 glyphs_[c] = final_glyph;
                 continue;
             }
 
-            // Создаём отдельную RGBA-текстуру для каждого глифа
             unsigned char* tex_buffer = new unsigned char[width * height * 4]();
 
             for (int y = 0; y < height; ++y) {
@@ -154,11 +149,10 @@ public:
             stbtt_FreeBitmap(bitmap, nullptr);
 
             texture* glyph_texture = new texture(width, height, tex_buffer, nullptr);
-            std::string tex_name   = name + "_atlas_" + getCodepointStr(c);
+            std::string tex_name   = name + "_atlas_" + get_codepoint_str(c);
 
             max_glyph_height = max_glyph_height > height ? max_glyph_height : height;
 
-            // UV всегда [0,1] — текстура содержит ровно один глиф
             glyph_info final_glyph;
 
             final_glyph.width    = width;

@@ -19,12 +19,12 @@ module;
 
 export module renderer;
 
-import camera;
-import shader;
-import sprite;
-import sprite_repository;
-import resources;
-import transform_node;
+export import camera;
+export import shader;
+export import sprite;
+export import sprite_repository;
+export import resources;
+export import transform_node;
 
 #define BUFFER_OVERSIZE 50
 #define DEBUG_WIREFRAME
@@ -57,10 +57,7 @@ private:
     static inline GLuint sprite_vao_   = 0;
     static inline GLuint quad_vao_     = 0;
 
-    // VBO для инстанс-данных спрайтов (статические параметры + ID трансформации)
     static inline GLuint instance_vbo_ = 0;
-
-    // SSBO для глобального массива трансформаций
     static inline GLuint transform_ssbo_ = 0;
 
     static inline SpritesRepository* repo_ = nullptr;
@@ -72,7 +69,7 @@ public:
     {
         if (initialized_) return;
 
-        glfwWindowHint(GLFW_SAMPLES, 4); // 4x MSAA
+        glfwWindowHint(GLFW_SAMPLES, 4);
 
         repo_ = repo;
 
@@ -106,78 +103,59 @@ public:
             glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(glm::float32), (void*)0);
             glEnableVertexAttribArray(0);
 
-            // 2. Инстанс-данные
+            // инстанс-данные
             glGenBuffers(1, &instance_vbo_);
             glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
 
-            // Width
+            // width
             glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, width));
             glEnableVertexAttribArray(2);
             glVertexAttribDivisor(2, 1);
 
-            // Height
+            // height
             glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, height));
             glEnableVertexAttribArray(3);
             glVertexAttribDivisor(3, 1);
 
-            // Transform Index (UINT)
-            // Внимание: используйте glVertexAttribIPointer для целочисленных типов!
-            glVertexAttribIPointer(4, 1, GL_UNSIGNED_INT, sizeof(SpriteData),
-                (void*)offsetof(SpriteData, transformIdx));
-            glEnableVertexAttribArray(4);
-            glVertexAttribDivisor(4, 1);
-
-            // Paralax
-            glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
-                (void*)offsetof(SpriteData, paralax));
-            glEnableVertexAttribArray(5);
-            glVertexAttribDivisor(5, 1);
-
-            // UV Rect
-            glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
-                (void*)offsetof(SpriteData, uvRect));
-            glEnableVertexAttribArray(6);
-            glVertexAttribDivisor(6, 1);
-
-            // iAngle (локальный) — location 4
+            // angle
             glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, angle));
             glEnableVertexAttribArray(4);
             glVertexAttribDivisor(4, 1);
 
-            // iPos (локальный) — location 5
+            // pos
             glVertexAttribPointer(5, 2, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, position));
             glEnableVertexAttribArray(5);
             glVertexAttribDivisor(5, 1);
 
-            // iParalax — location 6
+            // paralax
             glVertexAttribPointer(6, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, paralax));
             glEnableVertexAttribArray(6);
             glVertexAttribDivisor(6, 1);
 
-            // iUVRect — location 7
+            // uv rect
             glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, uvRect));
             glEnableVertexAttribArray(7);
             glVertexAttribDivisor(7, 1);
 
-            // iTransformIdx (UINT) — location 8
+            // transform
             glVertexAttribIPointer(8, 1, GL_UNSIGNED_INT, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, transformIdx));
             glEnableVertexAttribArray(8);
             glVertexAttribDivisor(8, 1);
 
-            // iDepth — location 9
+            // depth
             glVertexAttribPointer(9, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, depth));
             glEnableVertexAttribArray(9);
             glVertexAttribDivisor(9, 1);
 
-            // iColor — location 10
+            // color
             glVertexAttribPointer(10, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(SpriteData),
                 (void*)offsetof(SpriteData, color));
             glEnableVertexAttribArray(10);
@@ -187,15 +165,14 @@ public:
             glBindVertexArray(0);
         }
 
-        // === SSBO для трансформаций ===
+        // SSBO
         {
             glGenBuffers(1, &transform_ssbo_);
-            // Привязываем к точке 0 (соответствует binding = 0 в шейдере)
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, transform_ssbo_);
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         }
 
-        // === VAO для полноэкранного квада (постпроцессинг) ===
+        // VAO
         {
             glGenVertexArrays(1, &quad_vao_);
             glBindVertexArray(quad_vao_);
@@ -241,8 +218,8 @@ public:
     {
         glfwGetFramebufferSize(window, &window_width_, &window_height_);
 
-        const int buffer_width  = window_width_ ;// + BUFFER_OVERSIZE;
-        const int buffer_height = window_height_;// + BUFFER_OVERSIZE;
+        const int buffer_width  = window_width_ ;
+        const int buffer_height = window_height_;
 
         camera::set_frame_size(buffer_width, buffer_height);
 
@@ -250,7 +227,6 @@ public:
         if (color_texture_) glDeleteTextures(1, &color_texture_);
         if (rbo_)           glDeleteRenderbuffers(1, &rbo_);
 
-        // Создаем текстуру цвета
         glGenTextures(1, &color_texture_);
         glBindTexture(GL_TEXTURE_2D, color_texture_);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, buffer_width, buffer_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
@@ -276,7 +252,7 @@ public:
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    static void renderSprites(float time = 0)
+    static void render_sprites(float time = 0)
     {
         if (!initialized_ || !repo_) return;
 
@@ -291,46 +267,36 @@ public:
         sprite_shader_->set_uniform("uView", camera::get_view());
         sprite_shader_->set_uniform("uLightPos",
             glm::vec2(std::cos(time) * 500, std::sin(time) * 500));
-
-        // Устанавливаем максимальную глубину обхода иерархии
         sprite_shader_->set_uniform("uMaxTransformDepth", 16);
 
-        // 1. Обновляем SSBO с трансформациями
-        // Данные должны быть в формате, ожидаемом шейдером: vec4(x, y, angle, parentIdx)
-        // Метод getTransformsPointer() должен возвращать указатель на такой массив.
-        const auto* transforms = repo_->getTransformsPointer();
-        size_t transformCount = repo_->getTransformsCount();
+        const auto* transforms = repo_->get_transforms_pointer();
+        size_t transformCount = repo_->get_transforms_count();
 
         if (transforms && transformCount > 0) {
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, transform_ssbo_);
-            // Важно: размер в байтах
             glBufferData(GL_SHADER_STORAGE_BUFFER,
-                         transformCount * sizeof(TransformNode), // Убедитесь, что размер совпадает с vec4
+                         transformCount * sizeof(TransformNode),
                          transforms,
                          GL_DYNAMIC_DRAW);
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         }
 
-        // 2. Обновляем инстанс-буфер со спрайтами
         glBindVertexArray(sprite_vao_);
         glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
 
-        // Здесь предполагается, что getDataPointer возвращает обновленный массив SpriteData,
-        // который теперь содержит поле transformIdx.
         glBufferData(GL_ARRAY_BUFFER,
-                     repo_->getDataSize() * sizeof(SpriteData),
-                     repo_->getDataPointer(),
+                     repo_->get_data_size() * sizeof(SpriteData),
+                     repo_->get_data_pointer(),
                      GL_STREAM_DRAW);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-        // 3. Рендер
         glDrawArraysInstanced(GL_TRIANGLES, 0, 6,
-                              static_cast<GLsizei>(repo_->getDataSize()));
+                              static_cast<GLsizei>(repo_->get_data_size()));
         glBindVertexArray(0);
 #endif
     }
 
-    static void prepareConsts()
+    static void prepare_consts()
     {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, window_width_, window_height_);
@@ -338,15 +304,15 @@ public:
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
 
-    static void renderAll(const float& time)
+    static void render_all(const float& time)
     {
-        prepareConsts();
-        renderSprites(time);
+        prepare_consts();
+        render_sprites(time);
     }
 
     static void remove_sprite(int sprite_idx)
     {
         assert(repo_ != nullptr);
-        repo_->removeSprite(sprite_idx);
+        repo_->free_sprite(sprite_idx);
     }
 };

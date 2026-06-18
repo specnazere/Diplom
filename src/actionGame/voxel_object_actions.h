@@ -13,7 +13,7 @@ import projectile;
 
 enum action
 {
-    forward,
+    forward = 0,
     backward,
     left,
     right,
@@ -24,31 +24,31 @@ enum action
 };
 
 // returns push
-using forwardFunction = std::function<float(const glm::vec2& mass_center)>;
-using backwardFunction = std::function<float(const glm::vec2& mass_center)>;
-using leftFunction = std::function<float(const glm::vec2& mass_center)>;
-using rightFunction = std::function<float(const glm::vec2& mass_center)>;
+using forward_f = std::function<float(glm::vec2 mass_center)>;
+using backward_f = std::function<float(glm::vec2 mass_center)>;
+using left_f = std::function<float(glm::vec2 mass_center)>;
+using right_f = std::function<float(glm::vec2 mass_center)>;
 
 // returns torque
-using yawLeftFunction = std::function<float(const glm::vec2& mass_center)>;
-using yawRightFunction = std::function<float(const glm::vec2& mass_center)>;
+using yawLeft_f = std::function<float(glm::vec2 mass_center)>;
+using yawRight_f = std::function<float(glm::vec2 mass_center)>;
 
 // returns projectile makeup data
-using primaryWeaponFunction = std::function<std::optional<ProjectileMakeupData>(const float& dt)>;
+using primaryWeapon_f = std::function<std::optional<projectile_makeup_data>(float dt)>;
 
 // returns nothing, must rotate itself
-using targetFunction = std::function<void(const glm::vec2& target)>;
+using target_f = std::function<void(glm::vec2 target)>;
 
 struct actions
 {
-    std::vector<forwardFunction> forward;
-    std::vector<backwardFunction> backward;
-    std::vector<leftFunction> left;
-    std::vector<rightFunction> right;
-    std::vector<yawLeftFunction> yawLeft;
-    std::vector<yawRightFunction> yawRight;
-    std::vector<primaryWeaponFunction> primaryWeapon;
-    std::vector<targetFunction> target;
+    std::vector<forward_f> forward;
+    std::vector<backward_f> backward;
+    std::vector<left_f> left;
+    std::vector<right_f> right;
+    std::vector<yawLeft_f> yawLeft;
+    std::vector<yawRight_f> yawRight;
+    std::vector<primaryWeapon_f> primaryWeapon;
+    std::vector<target_f> target;
 };
 
 #endif //VOXEL_OBJECT_ACTIONS_H

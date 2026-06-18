@@ -35,7 +35,6 @@ import sprite_repository;
 import locale;
 import font;
 import atlas;
-import destruction;
 import camera;
 
 import moduled_entity;
@@ -49,7 +48,6 @@ import ai_object_controller;
 
 import voxel_grid;
 
-// Сетевые модули
 import native_tcp;
 import networked_voxel_object;
 import client_receiver;
@@ -96,20 +94,20 @@ void init_systems() {
     }
 
     // Load Resources
-    res.loadLocaleFile("res/localiz/placeholders.csv");
-    res.loadFontFile("res/fonts/trafaretkit.ttf", "basic");
-    res.loadTextureFile("spaceship", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
-    res.loadTextureFile("turret", "res/textures/turret/color.png", "res/textures/turret/normal.png");
-    res.addSolidColorTexture("blank", 255, 255, 255, 255);
+    res.load_locale_file("res/localiz/placeholders.csv");
+    res.load_font_file("res/fonts/trafaretkit.ttf", "basic");
+    res.load_texture_file("spaceship", "res/textures/spaceship/color.png", "res/textures/spaceship/normal.png");
+    res.load_texture_file("turret", "res/textures/turret/color.png", "res/textures/turret/normal.png");
+    res.add_solid_color_texture("blank", 255, 255, 255, 255);
 
     std::set<char32_t> combined_charset;
     Locale& loc = res.localesRepo["russian"].object;
-    const auto& cs = loc.getCharset();
+    const auto& cs = loc.get_charset();
     combined_charset.insert(cs.begin(), cs.end());
-    res.initFontWithCharset(combined_charset, 150, "basic");
+    res.init_font_with_charset(combined_charset, 150, "basic");
 
     Font& font = res.fontsRepo["basic"].object;
-    Atlas* atlas = res.createAtlas();
+    Atlas* atlas = res.create_atlas();
     if (!atlas) throw std::runtime_error("Failed to create texture atlas");
 
     global_repo = std::make_unique<SpritesRepository>();
@@ -168,7 +166,7 @@ std::pair<AIObjectController, std::unique_ptr<ModuledEntity<VoxelObject>>> spawn
 
     enemy->add_module(std::make_unique<VoxelModuleUniversalEngine>(10, glm::vec2(0.f), 0.f, engine_coords, 1000000.f, 100000000.f));
 
-    ProjectileMakeupData proj{
+    projectile_makeup_data proj{
         spaceship_texture_id,
         spaceship_texture_uv,
         kinetic_parameters (10.f, 100.f),
@@ -185,7 +183,7 @@ std::pair<AIObjectController, std::unique_ptr<ModuledEntity<VoxelObject>>> spawn
         glm::vec2(-50.f, 0.f),
         0.f,
         turret_coords,
-        global_repo->addSprite(SpriteData{
+        global_repo->add_sprite(SpriteData{
             turret_texture.width * 5.f,
             turret_texture.height * 5.f,
             0.f,
@@ -252,7 +250,7 @@ std::unique_ptr<ModuledEntity<NetworkedVoxelObject>> create_player(Scene& scene)
 
     player->add_module(std::make_unique<VoxelModuleUniversalEngine>(10, glm::vec2(0.f), 0.f, engine_coords, 1000000.f, 100000000.f));
 
-    ProjectileMakeupData proj{
+    projectile_makeup_data proj{
             spaceship_texture_id,
             spaceship_texture_uv,
             kinetic_parameters (10.f, 100.f),
@@ -269,7 +267,7 @@ std::unique_ptr<ModuledEntity<NetworkedVoxelObject>> create_player(Scene& scene)
         glm::vec2(-50.f, 0.f),
         0.f,
         turret_coords,
-        global_repo->addSprite(SpriteData{
+        global_repo->add_sprite(SpriteData{
             turret_texture.width * 5.f,
             turret_texture.height * 5.f,
             0.f,
@@ -427,7 +425,6 @@ GameState action_scene()
         ImGui::NewFrame();
 #endif
 
-        // Управление игроком (изменяет velocity/angular_velocity внутри объекта)
         controller.update(get_input());
 
         for (auto& enemy : enemies) {
@@ -443,7 +440,7 @@ GameState action_scene()
         scene.update(dt);
 
         glfwPollEvents();
-        Renderer::renderAll(0);
+        Renderer::render_all(0);
 
 #ifdef DEBUG_COLLISION
         ImGui::Render();
@@ -479,7 +476,7 @@ GameState grid_scene()
         grid.process_input(get_input());
 
         glfwPollEvents();
-        Renderer::renderAll(0);
+        Renderer::render_all(0);
 
         glfwSwapBuffers(window);
 
@@ -588,7 +585,7 @@ GameState run_host() {
         }
 
         glfwPollEvents();
-        Renderer::renderAll(0);
+        Renderer::render_all(0);
 
 #ifdef DEBUG_COLLISION
         ImGui::Render();
@@ -656,7 +653,7 @@ GameState run_client() {
         grid->process_input(get_input());
 
         glfwPollEvents();
-        Renderer::renderAll(0);
+        Renderer::render_all(0);
         glfwSwapBuffers(window);
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {

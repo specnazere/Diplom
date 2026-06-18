@@ -27,9 +27,6 @@ export import transform_node;
 export import voxel_health_protocol;
 export import native_tcp;
 
-// ---------------------------------------------------------------------------
-//  Статусы вокселей
-// ---------------------------------------------------------------------------
 export enum class VoxelStatus : std::uint8_t
 {
     Absent   = 0,  // пустая ячейка
@@ -38,11 +35,6 @@ export enum class VoxelStatus : std::uint8_t
     Boundary,
 };
 
-// ---------------------------------------------------------------------------
-//  Воксель — один пиксель текстуры, отображённый как квадратный спрайт.
-//  Позиция центрирована вокруг origin объекта: (col + 0.5 - cols/2) * cell_size.
-//  Никаких случайных или граничных смещений.
-// ---------------------------------------------------------------------------
 export struct Voxel
 {
     glm::vec2   center{};
@@ -57,12 +49,6 @@ export struct Voxel
 export
 class VoxelObject : public SceneObject
 {
-// private:
-//     struct FragmentData()
-//     {
-//
-//     }
-//
 public:
     static constexpr voxel_object_params standart_params = voxel_object_params(5.f, 1.f, 0.f, 1.f, {0.f, 0.f}, 0.f);
 
@@ -88,39 +74,28 @@ private:
 protected:
     const texture& tex_;
 
-    EventInvokingFunction* newEventFunc_;
-    void* invokeFunctionContext_;
-    size_t onSceneId_;
+    EventInvokingFunction* newEventFunc_ = nullptr;
+    void* invokeFunctionContext_ = nullptr;
+    size_t onSceneId_{};
 
 public:
-    // -----------------------------------------------------------------------
-    //  Конструктор
-    //
-    //  repository       — репозиторий спрайтов
-    //  tex              — текстура (colorData: RGBA, 4 байта на пиксель)
-    //  local_UV         — UV-прямоугольник региона атласа [u0,v0]–[u1,v1]
-    //  params           — параметры объекта
-    //  alpha_threshold  — пиксели с alpha <= порога считаются пустыми;
-    //                     при 0 (по умолчанию) все пиксели активны
-    // -----------------------------------------------------------------------
     VoxelObject(
-        const texture&     tex,
-        const size_t texture_id,
-        const uv_rect&     local_UV,
+        const texture& tex,
+        size_t texture_id,
+        uv_rect local_UV,
         const voxel_object_params& params = standart_params,
         bool chipped = false,
-        unsigned char alpha_threshold = 0,
-        bool net_main = false)
+        unsigned char alpha_threshold = 0)
         : tex_(tex)
         , params_(params)
         , local_UV_(local_UV)
         , parent_texture_(texture_id)
     {
         auto& repo = SpritesRepository::get_active();
-        grid_center_transform_ = repo.createTransform();
-        mass_center_transform_ = repo.createTransform();
-        TransformNode& mass_transform = repo.getTransform(mass_center_transform_);
-        TransformNode& grid_transform = repo.getTransform(grid_center_transform_);
+        grid_center_transform_ = repo.create_transform();
+        mass_center_transform_ = repo.create_transform();
+        TransformNode& mass_transform = repo.get_transform(mass_center_transform_);
+        TransformNode& grid_transform = repo.get_transform(grid_center_transform_);
         grid_transform.parentIndex = mass_center_transform_;
         mass_transform.position = params_.origin;
         mass_transform.angle = params_.angle;
@@ -137,40 +112,32 @@ public:
 
     VoxelObject(const VoxelObject&)            = delete;
     VoxelObject& operator=(const VoxelObject&) = delete;
-    VoxelObject(VoxelObject&&)                 = default;
-    VoxelObject& operator=(VoxelObject&&)      = default;
+    VoxelObject(VoxelObject&&)                 = delete;
+    VoxelObject& operator=(VoxelObject&&)      = delete;
 
-    ~VoxelObject()
+    ~VoxelObject() override
     {
         auto& repo = SpritesRepository::get_active();
         for (auto& vx : voxels_)
             if (vx.has_sprite())
-                repo.removeSprite(vx.spriteIdx);
+                repo.free_sprite(vx.spriteIdx);
     }
 
-    // -----------------------------------------------------------------------
-    //  Доступ
-    // -----------------------------------------------------------------------
     [[nodiscard]] const std::vector<Voxel>& voxels() const { return voxels_; }
     [[nodiscard]] int grid_cols()                     const { return cols_; }
     [[nodiscard]] int grid_rows()                     const { return rows_; }
 
-    [[nodiscard]] const Voxel* voxel_at(int col, int row) const
+    [[nodiscard]] inline const Voxel* voxel_at(const int& col, const int& row) const
     {
         if (col < 0 || col >= cols_ || row < 0 || row >= rows_) return nullptr;
         return &voxels_[static_cast<size_t>(row * cols_ + col)];
     }
-    Voxel* voxel_at(int col, int row)
+    [[nodiscard]] inline Voxel* voxel_at(const int& col, const int& row)
     {
         return const_cast<Voxel*>(std::as_const(*this).voxel_at(col, row));
     }
 
-    // -----------------------------------------------------------------------
-    //  Нанести урон в точке world_pos радиусом radius.
-    //  Возвращает true если хотя бы один воксель уничтожен.
-    //  После изменений пересчитывает чанки.
-    // -----------------------------------------------------------------------
-    void area_damage(const explosion_data& explosion, const glm::vec2& position) override
+    void area_damage(explosion_data explosion, glm::vec2 position) override
     {
         bool changed = false;
 
@@ -187,7 +154,7 @@ public:
         float cos_value = cos(angle);
         float sin_value = sin(angle);
         auto& repo = SpritesRepository::get_active();
-        glm::vec2 grid_center = global_position() + math::rotate_vec2(repo.getTransform(grid_center_transform_).position, angle);
+        glm::vec2 grid_center = global_position() + math::rotate_vec2(repo.get_transform(grid_center_transform_).position, angle);
 
         glm::vec2 diff = position - grid_center;
         glm::vec2 local_position = glm::vec2(
@@ -236,7 +203,6 @@ public:
                 std::vector<std::unique_ptr<VoxelObject>> fragments = split_if_disconnected();
 
                 if (!destroyed_voxels.empty()) {
-                    // Собираем все возможные цели: основной объект + все фрагменты
                     struct Target {
                         VoxelObject* obj;
                         glm::vec2 cm;
@@ -250,14 +216,15 @@ public:
                     }
 
                     for (const auto& dv : destroyed_voxels) {
-                        // 1. Направление от центра взрыва к уничтоженному вокселю
+                        // направление от центра взрыва к уничтоженному вокселю
                         glm::vec2 dir_voxel = dv.world_pos - position;
                         float len_voxel = glm::length(dir_voxel);
-                        if (len_voxel < 0.001f) continue; // Взрыв прямо в вокселе, игнорируем, чтобы не делить на 0
+
+                        if (len_voxel < 0.001f) continue;
                         dir_voxel /= len_voxel;
 
-                        // 2. Ищем цель с наименьшим углом (максимальный dot product)
-                        float max_dot = -2.0f; // cos(180°) = -1, так что -2.0f гарантированно меньше любого реального значения
+                        // цель с наименьшим углом
+                        float max_dot = -2.0f;
                         VoxelObject* best_target = nullptr;
 
                         for (const auto& t : targets) {
@@ -265,8 +232,6 @@ public:
                             float len_cm = glm::length(dir_cm);
 
                             if (len_cm < 0.001f) {
-                                // Взрыв произошёл точно в центре масс этого объекта.
-                                // Это идеальное совпадение (угол 0, dot = 1).
                                 max_dot = 2.0f;
                                 best_target = t.obj;
                                 break;
@@ -274,7 +239,6 @@ public:
 
                             dir_cm /= len_cm;
 
-                            // Скалярное произведение = cos(угла). Чем больше, тем меньше угол.
                             float dot = glm::dot(dir_voxel, dir_cm);
                             if (dot > max_dot) {
                                 max_dot = dot;
@@ -282,7 +246,7 @@ public:
                             }
                         }
 
-                        // 3. Применяем импульс
+                        // импульс
                         if (best_target) {
                             float magnitude = explosion.impulse / (len_voxel * len_voxel);
 
@@ -303,26 +267,10 @@ public:
         }
     }
 
-    // -----------------------------------------------------------------------
-    //  Проверить связность сетки и отколоть несвязные фрагменты.
-    //
-    //  Алгоритм:
-    //    1. BFS от первого живого вокселя — помечает «главный» компонент.
-    //    2. Повторяет BFS для каждого непомеченного живого вокселя —
-    //       каждый такой обход = отдельный фрагмент.
-    //    3. Для каждого фрагмента создаётся новый DestructibleObject
-    //       с теми же параметрами; его воксели получают спрайты,
-    //       перенесённые из текущего объекта (без пересоздания).
-    //    4. Фрагментные воксели в текущем объекте помечаются Absent,
-    //       их spriteIdx обнуляется (спрайты переданы фрагменту).
-    //
-    //  Возвращает вектор отколовшихся фрагментов (пуст если объект связен).
-    //  Текущий объект сохраняет наибольший компонент.
-    // -----------------------------------------------------------------------
     std::vector<std::unique_ptr<VoxelObject>> split_if_disconnected()
     {
         const int total = cols_ * rows_;
-        std::vector<int> component(static_cast<size_t>(total), -1);  // -1 = не посещён
+        std::vector component(static_cast<size_t>(total), -1);
         int num_components = 0;
 
         // BFS по 4-связным соседям
@@ -357,7 +305,6 @@ public:
             }
         };
 
-        // Обходим все живые воксели
         for (int i = 0; i < total; ++i)
         {
             if (!voxels_[static_cast<size_t>(i)].is_alive()) continue;
@@ -365,11 +312,9 @@ public:
             bfs(i, num_components++);
         }
 
-        // Один компонент — объект связен, ничего не делаем
         if (num_components <= 1)
             return {};
 
-        // Находим наибольший компонент — он остаётся в текущем объекте
         std::vector<int> comp_size(static_cast<size_t>(num_components), 0);
         for (int i = 0; i < total; ++i)
         {
@@ -379,7 +324,6 @@ public:
         const int main_comp = static_cast<int>(
             std::max_element(comp_size.begin(), comp_size.end()) - comp_size.begin());
 
-        // Создаём фрагменты для каждого второстепенного компонента
         std::vector<std::unique_ptr<VoxelObject>> fragments;
         fragments.reserve(static_cast<size_t>(num_components - 1));
 
@@ -388,10 +332,9 @@ public:
         {
             if (comp_id == main_comp) continue;
 
-            glm::vec2 frag_center = global_position() + math::rotate_vec2(repo.getTransform(grid_center_transform_).position, global_rotation());
+            glm::vec2 frag_center = global_position() + math::rotate_vec2(repo.get_transform(grid_center_transform_).position, global_rotation());
             const float& global_angle = get_angle();
 
-            // Создаём пустой объект с теми же параметрами (build_voxels не вызывается)
             fragments.push_back(std::move(std::make_unique<VoxelObject>(
                 tex_,
                 parent_texture_,
@@ -407,7 +350,6 @@ public:
                 true)));
             VoxelObject& frag = *fragments.back();
 
-            // Переносим воксели этого компонента
             for (int i = 0; i < total; ++i)
             {
                 if (component[static_cast<size_t>(i)] != comp_id) continue;
@@ -416,8 +358,8 @@ public:
                 Voxel& dst = frag.voxels_[static_cast<size_t>(i)];
 
                 dst = src;
-                dst.spriteIdx = repo.addSprite(repo.dataFromSpriteIdx(src.spriteIdx), frag.grid_center_transform_);
-                repo.dataFromSpriteIdx(dst.spriteIdx).transformIdx = frag.grid_center_transform_;
+                dst.spriteIdx = repo.add_sprite(repo.data_from_sprite_idx(src.spriteIdx), frag.grid_center_transform_);
+                repo.data_from_sprite_idx(dst.spriteIdx).transformIdx = frag.grid_center_transform_;
 
                 destroy_voxel(src);
             }
@@ -436,107 +378,103 @@ public:
             }
         }
 
-        // После передачи фрагментов пересчитываем чанки текущего объекта
         recalculate_physic();
 
         return fragments;
     }
 
-    void onConnectInit(void* context, EventInvokingFunction* func, const size_t& id) override
+    void on_connect_init(void* context, EventInvokingFunction* func, size_t id) override
     {
         invokeFunctionContext_ = context;
         newEventFunc_ = func;
         onSceneId_ = id;
     }
 
-    // -----------------------------------------------------------------------
-    //  Сдвинуть позицию всех спрайтов (если не используется TransformNode)
-    // -----------------------------------------------------------------------
     void sync_sprites()
     {
         auto& repo = SpritesRepository::get_active();
         for (auto& vx : voxels_)
         {
             if (!vx.has_sprite()) continue;
-            SpriteData& sd = repo.dataFromSpriteIdx(vx.spriteIdx);
+            SpriteData& sd = repo.data_from_sprite_idx(vx.spriteIdx);
             sd.position = vx.center;
         }
     }
 
-    const float& get_angle() const override
+    [[nodiscard]] float get_angle() const override
     {
-        return SpritesRepository::get_active().getTransform(mass_center_transform_).angle;
+        return SpritesRepository::get_active().get_transform(mass_center_transform_).angle;
     }
-    void add_angle(const float& dAngle) override
+    void add_angle(float dAngle) override
     {
-        SpritesRepository::get_active().getTransform(mass_center_transform_).angle += dAngle;
+        SpritesRepository::get_active().get_transform(mass_center_transform_).angle += dAngle;
     }
-    void set_angle(const float& angle) override
+    void set_angle(float angle) override
     {
-        SpritesRepository::get_active().getTransform(mass_center_transform_).angle = angle;
+        SpritesRepository::get_active().get_transform(mass_center_transform_).angle = angle;
     }
 
-    void set_global_angle(const float& angle)
+    void set_global_angle(float angle)
     {
         float global_angle = global_rotation();
         global_angle = std::fmod(global_angle, std::numbers::pi_v<float> * 2);
         add_angle(angle - global_angle);
     }
 
-    void add_position(const glm::vec2& pos) override
+    [[nodiscard]] glm::vec2 get_position() const override
     {
-        SpritesRepository::get_active().getTransform(mass_center_transform_).position += pos;
+        return SpritesRepository::get_active().get_transform(mass_center_transform_).position;
     }
-    void set_position(const glm::vec2& pos) override
+    void add_position(glm::vec2 pos) override
     {
-        SpritesRepository::get_active().getTransform(mass_center_transform_).position = pos;
+        SpritesRepository::get_active().get_transform(mass_center_transform_).position += pos;
     }
-    const glm::vec2& get_position() const override
+    void set_position(glm::vec2 pos) override
     {
-        return SpritesRepository::get_active().getTransform(mass_center_transform_).position;
+        SpritesRepository::get_active().get_transform(mass_center_transform_).position = pos;
     }
 
-    const float& get_angular_velocity() const override
+    [[nodiscard]] float get_angular_velocity() const override
     {
         return angular_velocity_;
     }
-    void add_angular_velocity(const float& dVelocity) override
+    void add_angular_velocity(float dVelocity) override
     {
         angular_velocity_ += dVelocity;
     }
-    void set_angular_velocity(const float& velocity) override
+    void set_angular_velocity(float velocity) override
     {
         angular_velocity_ = velocity;
     }
 
-    const glm::vec2& get_velocity() const override
+    [[nodiscard]] glm::vec2 get_velocity() const override
     {
         return velocity_;
     }
-    void add_velocity(const glm::vec2& velocity) override
+    void add_velocity(glm::vec2 velocity) override
     {
         velocity_ += velocity;
     }
-    void set_velocity(const glm::vec2& velocity) override
+    void set_velocity(glm::vec2 velocity) override
     {
         velocity_ = velocity;
     }
 
-    const float& get_mass() const override
+    [[nodiscard]] float get_mass() const override
     {
         return mass_;
     }
-    const float& get_moment() const override
+    [[nodiscard]] float get_moment() const override
     {
         return inertia_moment_;
     }
 
-    const size_t& get_parent_texture() const override
+    [[nodiscard]] size_t get_parent_texture() const override
     {
         return parent_texture_;
     }
 
-    const RecursiveHitbox& get_hitbox() const override
+    [[nodiscard]] const RecursiveHitbox& get_hitbox() const override
     {
         return *hitbox_;
     }
@@ -547,14 +485,14 @@ public:
     //  Не зависит от угла поворота — подходит как быстрый широкий тест.
     //  Радиус = половина диагонали AABB сетки вокселей.
     // -----------------------------------------------------------------------
-    float get_bounding_radius() const
+    [[nodiscard]] float get_bounding_radius() const
     {
         const float hw = cols_ * params_.cell_size * 0.5f;
         const float hh = rows_ * params_.cell_size * 0.5f;
         return std::sqrt(hw * hw + hh * hh);
     }
 
-    bool bounding_circles_overlap(const VoxelObject& other) const
+    [[nodiscard]] bool bounding_circles_overlap(const VoxelObject& other) const
     {
         const glm::vec2 d = get_position() - other.get_position();
         const float dist2 = d.x * d.x + d.y * d.y;
@@ -562,20 +500,6 @@ public:
         return dist2 < rsum * rsum;
     }
 
-    // -----------------------------------------------------------------------
-    //  Коллизия — полная трёхуровневая проверка:
-    //
-    //    1. Описывающие окружности объектов (мировое пространство)
-    //    2. Локальные чанки — через преобразование координат A.local → B.local
-    //    3. Вписанные окружности вокселей (расстояние между центрами < cell_size)
-    //
-    //  Важно: чанки хранятся в локальном пространстве каждого объекта
-    //  и не зависят от его позиции и угла — пересчёт нужен только при
-    //  разрушении вокселей.
-    //
-    //  Возвращает список точек контакта в мировых координатах.
-    //  Пустой вектор — коллизии нет.
-    // -----------------------------------------------------------------------
     std::optional<glm::vec2> find_contact(const PhysicObject& other) const override
     {
         return RecursiveHitbox::checkCollision(
@@ -587,38 +511,29 @@ public:
             );
     }
 
-    // Применяет мгновенный импульс в точке world_pos
-    // impulse — вектор импульса (кг*м/с)
-    void apply_impulse_at(const glm::vec2& impulse, const glm::vec2& world_pos) override {
-        // 1. Изменение линейной скорости: v += J / m
+    void apply_impulse_at(glm::vec2 impulse, glm::vec2 world_pos) override
+    {
         velocity_ += impulse / mass_;
 
-        // 2. Изменение угловой скорости: w += (r x J) / I
-        glm::vec2 r = world_pos - get_position(); // плечо силы
-        float torque = r.x * impulse.y - r.y * impulse.x; // 2D cross product
+        glm::vec2 r = world_pos - get_position();
+        float torque = r.x * impulse.y - r.y * impulse.x;
         angular_velocity_ += torque / inertia_moment_;
     }
 
-    // Опционально: метод для "статического" удара (как ты просил для пуль)
-    // Просто меняет скорость, игнорируя массу другого тела (если нужно)
-    void apply_static_impulse(const glm::vec2& impulse) {
+    void apply_static_impulse(const glm::vec2& impulse)
+    {
         velocity_ += impulse / mass_;
-        // Угловую можно не менять, если удар в центр масс, или рассчитать отдельно
     }
 
-    void invokeEventsFromThis(std::vector<std::unique_ptr<events::SceneEvent>> outside_events) override
+    void invoke_events_from_this(std::vector<std::unique_ptr<events::SceneEvent>> outside_events) override
     {
         newEventFunc_(invokeFunctionContext_, outside_events);
     }
 
-    // -----------------------------------------------------------------------
-    //  Удобный метод: проверить коллизию и нанести урон в точках контакта.
-    //  Возвращает true если коллизия произошла.
-    // -----------------------------------------------------------------------
 #ifndef DEBUG_COLLISION
-    void update(const float& dt) override
+    void update(float dt) override
 #else
-    void update(const float& dt, bool debug_draw) override
+    void update(float dt, bool debug_draw) override
 #endif
     {
         add_angle(angular_velocity_ * dt);
@@ -631,42 +546,42 @@ public:
 #endif
     }
 
-    int get_grid_transform() const
+    [[nodiscard]] size_t get_grid_transform() const
     {
         return grid_center_transform_;
     }
 
-    int get_mass_transform() const
+    [[nodiscard]] size_t get_mass_transform() const
     {
         return mass_center_transform_;
     }
 
-    void set_parent_transform(int index)
+    void set_parent_transform(int index) const
     {
-        SpritesRepository::get_active().getTransform(mass_center_transform_).parentIndex = index;
+        SpritesRepository::get_active().get_transform(mass_center_transform_).parentIndex = index;
     }
 
-    int get_parent_transform()
+    [[nodiscard]] int get_parent_transform() const
     {
-        return SpritesRepository::get_active().getTransform(grid_center_transform_).parentIndex;
+        return SpritesRepository::get_active().get_transform(grid_center_transform_).parentIndex;
     }
 
-    glm::vec2 global_position()
+    [[nodiscard]] glm::vec2 global_position() const
     {
-        return SpritesRepository::get_active().getGlobalPosition(mass_center_transform_);
+        return SpritesRepository::get_active().get_global_position(mass_center_transform_);
     }
 
-    float global_rotation()
+    [[nodiscard]] float global_rotation() const
     {
-        return SpritesRepository::get_active().getGlobalRotation(mass_center_transform_);
+        return SpritesRepository::get_active().get_global_rotation(mass_center_transform_);
     }
 
-    float local_rotation()
+    [[nodiscard]] float local_rotation() const
     {
-        return SpritesRepository::get_active().getTransform(mass_center_transform_).angle;
+        return SpritesRepository::get_active().get_transform(mass_center_transform_).angle;
     }
 
-    const size_t& id() override
+    [[nodiscard]] size_t id() const override
     {
         return onSceneId_;
     }
@@ -707,7 +622,7 @@ protected:
              (bound.x1 * params_.cell_size + size.x * 0.5f) - cols_ * 0.5f * params_.cell_size,
              (bound.y1 * params_.cell_size + size.y * 0.5f) - rows_ * 0.5f * params_.cell_size
             };
-        hitbox_shift += SpritesRepository::get_active().getTransform(grid_center_transform_).position;
+        hitbox_shift += SpritesRepository::get_active().get_transform(grid_center_transform_).position;
 
         hitbox_ = std::make_unique<RecursiveHitbox>(
         bound,
@@ -730,24 +645,6 @@ protected:
 
     void build_voxels(unsigned char alpha_threshold)
     {
-        // int up = std::numeric_limits<int>::max();
-        // int down = std::numeric_limits<int>::min();
-        // int left = std::numeric_limits<int>::max();
-        // int right = std::numeric_limits<int>::min();
-        //
-        // for (int x = 0; x < tex_.width; x++) {
-        //     for (int y = 0; y < tex_.height; y++) {
-        //
-        //         const size_t pixel_idx = static_cast<size_t>(y * tex_.width + x);
-        //         if (tex_.colorData[pixel_idx * 4 + 3] <= alpha_threshold) continue;
-        //
-        //         up = std::min(up, y);
-        //         down = std::max(down, y);
-        //         left = std::min(left, x);
-        //         right = std::max(right, x);
-        //     }
-        // }
-
         cols_ = tex_.width;
         rows_ = tex_.height;
 
@@ -767,7 +664,6 @@ protected:
             {
                 Voxel& vx = voxels_[static_cast<size_t>(row * cols_ + col)];
 
-                // Центрируем сетку вокруг origin
                 vx.center = {
                     (col + 0.5f - cols_ * 0.5f) * cs,
                     (row + 0.5f - rows_ * 0.5f) * cs
@@ -775,7 +671,6 @@ protected:
                 vx.hp     = params_.default_hp;
                 vx.status = VoxelStatus::Absent;
 
-                // Проверяем альфа-канал (RGBA: 4 байта на пиксель, alpha = байт [3])
                 if (tex_.colorData != nullptr)
                 {
                     const size_t pixel_idx = static_cast<size_t>(row * tex_.width + col);
@@ -798,7 +693,7 @@ protected:
                 sd.color      = {255, 255, 255, 255};
                 sd.transformIdx = grid_center_transform_;
 
-                vx.spriteIdx = repo.addSprite(sd);
+                vx.spriteIdx = repo.add_sprite(sd);
                 repo[vx.spriteIdx].textureDesc = tex_desc;
             }
         }
@@ -821,8 +716,8 @@ protected:
         mass_ = alive_num;
 
         auto& repo = SpritesRepository::get_active();
-        TransformNode& mass_center = repo.getTransform(mass_center_transform_);
-        TransformNode& grid_center = repo.getTransform(grid_center_transform_);
+        TransformNode& mass_center = repo.get_transform(mass_center_transform_);
+        TransformNode& grid_center = repo.get_transform(grid_center_transform_);
 
         glm::vec2 mass_center_shift = new_mass_center + grid_center.position;
 
@@ -837,57 +732,20 @@ protected:
             inertia_moment_ += glm::dot(voxel_center, voxel_center) + self_inertia;
         }
 
-        // mass_center_ = new_mass_center;
         build_local_chunks();
         return true;
-    }
-
-    void update_boundary()
-    {
-        for (int i = 0; i < (cols_ * rows_); ++i) {
-            if (i < cols_ || // верхняя граница
-                (i + 1) % (rows_ + 1) == 0 || // правая граница
-                i % (rows_ + 1) == 0 || // левая граница
-                i < cols_ * (rows_ - 1)) // нижняя граница
-            {
-                if (voxels_[i].is_alive()) {
-                    voxels_[i].status = VoxelStatus::Boundary;
-                }
-                continue;
-            }
-
-            if (voxels_[i].is_alive()) {
-                if (voxels_[i + 1].is_alive() &&
-                    voxels_[i - 1].is_alive() &&
-                    voxels_[i + cols_].is_alive() &&
-                    voxels_[i - cols_].is_alive()
-                ) voxels_[i].status = VoxelStatus::Solid;
-                else {
-                    voxels_[i].status = VoxelStatus::Boundary;
-                }
-            }
-        }
-    }
-
-    std::vector<Voxel> get_boundary()
-    {
-        std::vector<Voxel> boundary_voxels;
-        for (const size_t& i : boundary_) {
-            boundary_voxels.push_back(voxels_[i]);
-        }
-        return boundary_voxels;
     }
 
     static void destroy_voxel(Voxel& vx)
     {
         if (vx.has_sprite()) {
-            SpritesRepository::get_active().getDataPointer(vx.spriteIdx)->depth = 10;
+            SpritesRepository::get_active().get_data_pointer(vx.spriteIdx)->depth = 10;
         }
         vx.hp = 0;
         vx.status = VoxelStatus::Destroyed;
     }
 
 protected:
-    // Вызывается для каждого вокселя, чье здоровье изменилось в area_damage
+    // вызывается для каждого вокселя, чье здоровье изменилось в area_damage
     virtual void on_voxel_damaged(int col, int row) {}
 };

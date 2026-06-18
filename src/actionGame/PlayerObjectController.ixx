@@ -21,24 +21,24 @@ private:
 public:
     // Настройки управления
 
-    PlayerObjectController(ModuledEntity<NetworkedVoxelObject>& obj)
+    explicit PlayerObjectController(ModuledEntity<NetworkedVoxelObject>& obj)
         : object_(obj)
     {}
 
     // Обновление физики объекта на основе ввода
     // dt - время кадра в секундах
-    void update(const InputState& playerInput)
+    void update(InputState playerInput)
     {
         signals::signal_t& signal = object_.signal;
         signal = 0;
 
-        if (playerInput.up)    signal += signals::forwardSignal;
-        if (playerInput.down)  signal += signals::backwardSignal;
-        if (playerInput.right) signal += signals::rightSignal;
-        if (playerInput.left)  signal += signals::leftSignal;
-        if (playerInput.rotate_right) signal += signals::yawLeftSignal;
-        if (playerInput.rotate_left)  signal += signals::yawRightSignal;
-        if (playerInput.fire) signal += signals::primaryWeaponSignal;
+        if (playerInput.up)    signal += signals::FORWARD_SIGNAL;
+        if (playerInput.down)  signal += signals::BACKWARD_SIGNAL;
+        if (playerInput.right) signal += signals::RIGHT_SIGNAL;
+        if (playerInput.left)  signal += signals::LEFT_SIGNAL;
+        if (playerInput.rotate_right) signal += signals::YAW_LEFT_SIGNAL;
+        if (playerInput.rotate_left)  signal += signals::YAW_RIGHT_SIGNAL;
+        if (playerInput.fire) signal += signals::PRIMAPY_WEAPON_SIGNAL;
 
         object_.target = playerInput.globalCursorPosition;
 

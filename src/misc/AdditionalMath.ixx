@@ -11,7 +11,7 @@ export module additional_math;
 export
 namespace math
 {
-    inline glm::vec2 rotate_vec2(const glm::vec2& vector, const float& angle)
+    inline glm::vec2 rotate_vec2(glm::vec2 vector, float angle)
     {
         float cosA = std::cosf(angle);
         float sinA = std::sinf(angle);

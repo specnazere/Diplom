@@ -77,8 +77,6 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/graphics/SpritesRepository.ixx
         src/graphics/TransformNode.ixx
 
-        src/actionGame/Spaceship.ixx
-        src/actionGame/Destruction.ixx
         src/actionGame/DestructibleObject.ixx
         src/actionGame/Scene.ixx
         src/actionGame/PlayerObjectController.ixx
@@ -102,7 +100,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         src/netcode/ClientSender.ixx
 
         src/misc/Multitype_index_repository.ixx
-        src/misc/Additional_math.ixx
+        src/misc/AdditionalMath.ixx
         src/misc/InputState.ixx
 
         src/Game.ixx

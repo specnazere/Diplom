@@ -39,15 +39,15 @@ private:
     unsigned int lastDesc = 0;
 
 public:
-    signedContainer& operator[](const size_t& desc)
+    [[nodiscard]] signedContainer& operator[](size_t desc)
     {
         return signedContainers.at(iDescToIndex.at(desc));
     }
-    signedContainer& operator[](const std::string& desc)
+    [[nodiscard]] signedContainer& operator[](const std::string& desc)
     {
         return signedContainers.at(sDescToIndex.at(desc));
     }
-    bool contains(const size_t& desc)
+    bool contains(size_t desc)
     {
         return iDescToIndex.contains(desc);
     }
@@ -73,17 +73,12 @@ public:
         return keys;
     }
 
-    unsigned int get_id(const std::string& sDesc) const {
+    unsigned int get_id(const std::string& sDesc) const
+    {
         auto it = sDescToIndex.find(sDesc);
-        if (it != sDescToIndex.end()) {
-            return it->second; // Это индекс в векторе, но нам нужен iDesc (ключ в iDescToIndex)
-            // Стоп. В твоей реализации:
-            // sDescToIndex maps string -> index in vector
-            // iDescToIndex maps iDesc (lastDesc) -> index in vector
-            // signedContainers[index].iDesc is the actual ID used externally.
-
-            size_t vecIndex = it->second;
-            return signedContainers[vecIndex].iDesc;
+        if (it != sDescToIndex.end())
+            {
+            return it->second;
         }
         throw std::runtime_error("Descriptor not found");
     }

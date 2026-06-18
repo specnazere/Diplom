@@ -16,9 +16,9 @@ module;
 
 export module voxel_module;
 
-import voxel_object;
-import sprite_repository;
-import transform_node;
+export import voxel_object;
+export import sprite_repository;
+export import transform_node;
 
 export
 class VoxelModule
@@ -36,15 +36,14 @@ public:
 
     VoxelModule() = delete;
 
-    VoxelModule(const int& priority, const glm::vec2& center, const float& critical_integrity, const std::vector<std::pair<int, int>>& coords)
-        : priority(priority)
-        , center(center)
+    VoxelModule(int priority, glm::vec2 center, float critical_integrity, const std::vector<std::pair<int, int>>& coords)
+        : voxel_coords(coords)
+        , priority(priority)
         , critical_integrity(critical_integrity)
-        , voxel_coords(coords)
-    {
-    }
+        , center(center)
+    {}
 
-    void refresh_integrity(const std::vector<Voxel>& ship_voxels, const size_t& width)
+    void refresh_integrity(const std::vector<Voxel>& ship_voxels, size_t width)
     {
         integrity = 0;
         float deltaIntegrity = 1 / static_cast<float>(voxel_coords.size());
@@ -68,12 +67,12 @@ private:
 
 public:
     VoxelModuleUniversalEngine(
-        const int& priority,
-        const glm::vec2& center,
-        const float& critical_integrity,
+        int priority,
+        glm::vec2 center,
+        float critical_integrity,
         const std::vector<std::pair<int, int>>& coords,
-        const float& power,
-        const float& torque)
+        float power,
+        float torque)
         : VoxelModule(priority, center, critical_integrity, coords)
         , power_(power)
         , torque_(torque)
@@ -82,27 +81,27 @@ public:
 
     void apply_actions(actions& actions) override
     {
-        actions.backward.emplace_back([this](const glm::vec2& mass_center)
+        actions.backward.emplace_back([this](glm::vec2 mass_center)
         {
             return power_;
         });
-        actions.forward.emplace_back([this](const glm::vec2& mass_center)
+        actions.forward.emplace_back([this](glm::vec2 mass_center)
         {
             return power_;
         });
-        actions.left.emplace_back([this](const glm::vec2& mass_center)
+        actions.left.emplace_back([this](glm::vec2 mass_center)
         {
             return power_;
         });
-        actions.right.emplace_back([this](const glm::vec2& mass_center)
+        actions.right.emplace_back([this](glm::vec2 mass_center)
         {
             return power_;
         });
-        actions.yawLeft.emplace_back([this](const glm::vec2& mass_center)
+        actions.yawLeft.emplace_back([this](glm::vec2 mass_center)
         {
             return torque_;
         });
-        actions.yawRight.emplace_back([this](const glm::vec2& mass_center)
+        actions.yawRight.emplace_back([this](glm::vec2 mass_center)
         {
             return torque_;
         });
@@ -115,7 +114,7 @@ class VoxelModuleTurret : public VoxelModule
 private:
     size_t turret_sprite_;
     size_t mount_transform_;
-    ProjectileMakeupData projectile_data_;
+    projectile_makeup_data projectile_data_;
     float cooldown_;
     float timer_ = 0.f;
 
@@ -123,36 +122,36 @@ public:
     const float turn_speed;
 
     VoxelModuleTurret(
-        const int& priority,
-        const glm::vec2& position,
-        const glm::vec2& mount,
-        const float& critical_integrity,
+        int priority,
+        glm::vec2 position,
+        glm::vec2 mount,
+        float critical_integrity,
         const std::vector<std::pair<int, int>>& coords,
-        const size_t& turret_sprite,
-        const float& turn_speed,
-        const int& parent_transform,
-        const float& cooldown,
-        const ProjectileMakeupData& projectile_data)
+        size_t turret_sprite,
+        float turn_speed,
+        int parent_transform,
+        float cooldown,
+        const projectile_makeup_data& projectile_data)
         : VoxelModule(priority, position, critical_integrity, coords)
         , turret_sprite_(turret_sprite)
         , turn_speed(turn_speed)
         , cooldown_(cooldown)
         , projectile_data_(projectile_data)
     {
-        mount_transform_ = SpritesRepository::get_active().createTransform();
-        SpriteData& sprite_data = *SpritesRepository::get_active().getDataPointer(turret_sprite_);
+        mount_transform_ = SpritesRepository::get_active().create_transform();
+        SpriteData& sprite_data = *SpritesRepository::get_active().get_data_pointer(turret_sprite_);
         sprite_data.transformIdx = mount_transform_;
         sprite_data.position = mount;
-        SpritesRepository::get_active().getTransform(mount_transform_).parentIndex = parent_transform;
+        SpritesRepository::get_active().get_transform(mount_transform_).parentIndex = parent_transform;
     }
 
     void apply_actions(actions& actions) override
     {
         actions.target.emplace_back([this](const glm::vec2& target)
         {
-            glm::vec2 direction = globalPosition() - target;
+            glm::vec2 direction = global_position() - target;
             float angle = std::atan2(direction.y, direction.x);
-            setGlobalRotation(angle);
+            set_global_rotation(angle);
         });
         actions.primaryWeapon.emplace_back([this](const float& dt)
         {
@@ -160,9 +159,9 @@ public:
 
             if (timer_ < 0.f) {
                 timer_ = cooldown_;
-                ProjectileMakeupData new_projectile_data = projectile_data_;
+                projectile_makeup_data new_projectile_data = projectile_data_;
 
-                float angle = globalRotation() + glm::pi<float>();
+                float angle = global_rotation() + glm::pi<float>();
                 float cosA = std::cosf(angle);
                 float sinA = std::sinf(angle);
                 float& velX = new_projectile_data.velocity.x;
@@ -171,7 +170,7 @@ public:
                     velX * cosA - velY * sinA,
                     velX * sinA + velY * cosA};
 
-                glm::vec2 turretPosition = globalPosition();
+                glm::vec2 turretPosition = global_position();
                 float& localPosX = new_projectile_data.position.x;
                 float& localPosY = new_projectile_data.position.y;
                 new_projectile_data.position = {
@@ -180,36 +179,28 @@ public:
 
 
                 return std::optional(new_projectile_data);
-            }
-            else {
-                return std::optional<ProjectileMakeupData>();
+            } else {
+                return std::optional<projectile_makeup_data>();
             }
         });
     }
 
 private:
-    inline TransformNode& turretMountData()
+    [[nodiscard]] inline TransformNode& turret_mount_data() const
     {
-        return SpritesRepository::get_active().getTransform(mount_transform_);
+        return SpritesRepository::get_active().get_transform(mount_transform_);
     }
-    inline glm::vec2 globalPosition()
+    [[nodiscard]] inline glm::vec2 global_position() const
     {
-        return SpritesRepository::get_active().getGlobalPosition(mount_transform_);
+        return SpritesRepository::get_active().get_global_position(mount_transform_);
     }
-    inline float globalRotation()
+    [[nodiscard]] inline float global_rotation() const
     {
-        return SpritesRepository::get_active().getGlobalRotation(mount_transform_);
+        return SpritesRepository::get_active().get_global_rotation(mount_transform_);
     }
-    inline void setGlobalRotation(const float& rotation)
+    inline void set_global_rotation(float rotation) const
     {
-        TransformNode& mountData = turretMountData();
-        mountData.angle += rotation - globalRotation();
+        TransformNode& mountData = turret_mount_data();
+        mountData.angle += rotation - global_rotation();
     }
 };
-
-
-// export
-// class VoxelModuleControlRoom : public VoxelModule
-// {
-//     void apply_actions(actions& actions) override;
-// };

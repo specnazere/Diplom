@@ -19,23 +19,19 @@ module;
 
 export module scene;
 
-import sprite_repository;
-import texture;
-import atlas;
-import projectile;
-import scene_object;
+export import sprite_repository;
+export import texture;
+export import atlas;
+export import projectile;
+export import scene_object;
 
-// ---------------------------------------------------------------------------
-//  ObjectHandle — идентификатор объекта в сцене.
-//  Поколение (generation) защищает от обращения к удалённому слоту.
-// ---------------------------------------------------------------------------
 export
 struct ObjectHandle
 {
     uint32_t index      = ~uint32_t{0};
     uint32_t generation = 0;
 
-    bool is_valid() const { return index != ~uint32_t{0}; }
+    [[nodiscard]] inline bool is_valid() const { return index != ~uint32_t{0}; }
     bool operator==(const ObjectHandle&) const = default;
 };
 
@@ -63,7 +59,7 @@ private:
         std::unique_ptr<events::SceneEvent> eventPtr;
         size_t object_index = 0;
 
-        EventSlot(std::unique_ptr<events::SceneEvent> event, const size_t& parent_object_index)
+        EventSlot(std::unique_ptr<events::SceneEvent> event, size_t parent_object_index)
         {
             eventPtr = std::move(event);
             object_index = parent_object_index;
@@ -77,22 +73,17 @@ private:
         float     radius;
     };
 
-    std::vector<EventSlot> events;
-
+    std::vector<EventSlot> events_;
     std::vector<ObjectSlot> slots_;
-    std::vector<Signature> signatures_; // живёт один кадр, пересобирается в update()
-
-    mutable std::mutex mutex_;       // Added
+    mutable std::mutex mutex_;
 
 public:
-
-    explicit Scene()
-    {}
+    explicit Scene() {}
 
     Scene(const Scene&)            = delete;
     Scene& operator=(const Scene&) = delete;
-    Scene(Scene&&)                 = default;
-    Scene& operator=(Scene&&)      = default;
+    Scene(Scene&&)                 = delete;
+    Scene& operator=(Scene&&)      = delete;
 
     // -----------------------------------------------------------------------
     //  Добавить объект в сцену. Возвращает хэндл для последующего доступа.
@@ -101,7 +92,7 @@ public:
     {
         assert(obj != nullptr);
 
-        // Ищем свободный слот среди удалённых
+        // свободный слот среди удалённых
         for (uint32_t i = 0; i < static_cast<uint32_t>(slots_.size()); ++i)
         {
             if (!slots_[i].occupied)
@@ -110,23 +101,20 @@ public:
                 slots_[i].occupied = true;
                 slots_[i].has_physics = has_physic;
 
-                slots_[i].obj->onConnectInit(new EventInvokingContext(this, i), &static_add_events, i);
+                slots_[i].obj->on_connect_init(new EventInvokingContext(this, i), &static_add_events, i);
                 // generation уже инкрементирован при удалении
                 return { i, slots_[i].generation };
             }
         }
 
-        // Нет свободных слотов — расширяем
+        //  расширяем
         const uint32_t idx = static_cast<uint32_t>(slots_.size());
 
-        obj->onConnectInit(new EventInvokingContext(this, idx), &static_add_events, idx);
+        obj->on_connect_init(new EventInvokingContext(this, idx), &static_add_events, idx);
         slots_.push_back({std::move(obj), 0, {}, true, has_physic});
         return { idx, 0 };
     }
 
-    // -----------------------------------------------------------------------
-    //  Удалить объект по хэндлу. Возвращает false если хэндл устарел.
-    // -----------------------------------------------------------------------
     bool remove(ObjectHandle handle)
     {
         if (!is_alive(handle)) return false;
@@ -135,33 +123,25 @@ public:
         return true;
     }
 
-    // -----------------------------------------------------------------------
-    //  Получить указатель на объект (nullptr если хэндл устарел).
-    // -----------------------------------------------------------------------
-    SceneObject* get(ObjectHandle handle)
-    {
-        if (!is_alive(handle)) return nullptr;
-        return slots_[handle.index].obj.get();
-    }
-    const SceneObject* get(ObjectHandle handle) const
+    [[nodiscard]] SceneObject* get(ObjectHandle handle)
     {
         if (!is_alive(handle)) return nullptr;
         return slots_[handle.index].obj.get();
     }
 
-    // -----------------------------------------------------------------------
-    //  Проверить, жив ли хэндл
-    // -----------------------------------------------------------------------
-    bool is_alive(ObjectHandle handle) const
+    [[nodiscard]] const SceneObject* get(ObjectHandle handle) const
+    {
+        if (!is_alive(handle)) return nullptr;
+        return slots_[handle.index].obj.get();
+    }
+
+    [[nodiscard]] bool is_alive(ObjectHandle handle) const
     {
         return handle.index < slots_.size()
             && slots_[handle.index].occupied
             && slots_[handle.index].generation == handle.generation;
     }
 
-    // -----------------------------------------------------------------------
-    //  Manual lock/unlock for external synchronization
-    // -----------------------------------------------------------------------
     void lock()
     {
         mutex_.lock();
@@ -172,52 +152,15 @@ public:
         mutex_.unlock();
     }
 
-    // -----------------------------------------------------------------------
-    //  Обновить сцену за один кадр.
-    //
-    //  Алгоритм:
-    //    1. Собрать сигнатуры всех живых объектов.
-    //    2. Broad-phase по сигнатурам (описывающие окружности).
-    //    3. Narrow-phase через find_contacts() для прошедших broad-phase.
-    //    4. Применить коллбэк и урон.
-    //    5. Вызвать split_if_disconnected() на повреждённых объектах,
-    //       добавить фрагменты в сцену.
-    //    6. Удалить объекты, у которых не осталось живых вокселей.
-    // -----------------------------------------------------------------------
     void update(const float& dt)
     {
-        // Множество слотов, которые получили урон — им нужен split
         std::vector<uint32_t> damaged_slots;
 
-        // Narrow-phase
-        resolveCollisions(dt);
+        resolve_collisions();
 
-        // for (ProjectileSlot& projSlot : projectiles_) {
-        //     projSlot.proj->update(dt);
-        // }
-
-
-        // Убираем дубликаты в damaged_slots
         std::sort(damaged_slots.begin(), damaged_slots.end());
         damaged_slots.erase(std::unique(damaged_slots.begin(), damaged_slots.end()),
                             damaged_slots.end());
-
-        // Split + добавление фрагментов
-        std::vector<std::unique_ptr<SceneObject>> new_fragments;
-
-        // for (uint32_t idx : damaged_slots)
-        // {
-        //     if (!slots_[idx].occupied) continue;
-        //
-        //     auto frags = slots_[idx].obj->split_if_disconnected();
-        //     for (auto& frag : frags)
-        //         new_fragments.push_back(
-        //             std::make_unique<SceneObject>(std::move(frag)));
-        // }
-
-        // Добавить фрагменты (после remove, чтобы не трогать их сразу же)
-        for (auto& frag : new_fragments)
-            add(std::move(frag));
 
         for_each([dt, this](const ObjectHandle& handle, SceneObject& obj)
         {
@@ -228,10 +171,10 @@ public:
 #endif
         });
 
-        resolveEvents(events);
+        resolve_events(events_);
     }
 
-    void resolveCollisions(const float& dt)
+    void resolve_collisions()
     {
         for (size_t ia = 0, ib = 1; ia < slots_.size(); ia++)
         for (ib = ia + 1; ib < slots_.size(); ib++) {
@@ -251,8 +194,7 @@ public:
 
             glm::vec2& contact_point = contact.value();
 
-            const float restitution = 0.6f; // Попробуй разные значения: 0.0, 0.5, 0.9
-            const float percent = -0.2f;     // Процент коррекции позиции (0.8 = 80% проникновения убираем за кадр)
+            const float restitution = 0.6f;
 
             const glm::vec2 posA = a.get_position();
             const glm::vec2 posB = b.get_position();
@@ -262,11 +204,9 @@ public:
             const float IA = a.get_moment();
             const float IB = b.get_moment();
 
-            // Векторы от центров масс до точки контакта
             const glm::vec2 rA = contact_point - posA;
             const glm::vec2 rB = contact_point - posB;
 
-            // 2. Расчет скоростей в точке контакта
             const glm::vec2 vA = a.get_velocity() + glm::vec2(-a.get_angular_velocity() * rA.y, a.get_angular_velocity() * rA.x);
             const glm::vec2 vB = b.get_velocity() + glm::vec2(-b.get_angular_velocity() * rB.y, b.get_angular_velocity() * rB.x);
 
@@ -276,7 +216,6 @@ public:
 
             glm::vec2 n = glm::normalize(vRel);
 
-            // Проекция относительной скорости на нормаль
             float velAlongNormal = glm::dot(vRel, n);
 
             const float raCrossN = rA.x * n.y - rA.y * n.x;
@@ -292,24 +231,23 @@ public:
 
             const glm::vec2 impulse = n * j;
 
-            // Применяем к обоим. Важно: импульс для B равен -impulse
             a.apply_impulse_at(impulse, contact_point);
             b.apply_impulse_at(-impulse, contact_point);
 
-            // Позиционная коррекция (чтобы не залипали)
+            // позиционная коррекция
             const glm::vec2 vADirection = glm::normalize(a.get_velocity() + glm::vec2(-a.get_angular_velocity() * rA.y, a.get_angular_velocity() * rA.x));
             const glm::vec2 vBDirection = glm::normalize(b.get_velocity() + glm::vec2(-b.get_angular_velocity() * rB.y, b.get_angular_velocity() * rB.x));
             float dotA = glm::dot(vADirection, n);
             float dotB = glm::dot(vBDirection, n);
-            //std::cout << dotA << " " << dotB << std::endl;
-            const float correctionMag = 0.05f; // Подбери экспериментально (в единицах твоего мира)
-            const glm::vec2 correction = n * correctionMag * percent;
-            a.add_position(dotA * correction * (1.0f / mA) / invMassSum); // Распределение по массам
+
+            const float correctionMag = -0.02f;
+            const glm::vec2 correction = n * correctionMag;
+            a.add_position(dotA * correction * (1.0f / mA) / invMassSum);
             b.add_position(dotB * -correction * (1.0f / mB) / invMassSum);
         }
     }
 
-    void resolveEvents(std::vector<EventSlot>& eventsVector)
+    void resolve_events(std::vector<EventSlot>& eventsVector)
     {
         std::vector<EventSlot> eventsCopy;
         eventsCopy.swap(eventsVector);
@@ -346,10 +284,6 @@ public:
         }
     }
 
-    // -----------------------------------------------------------------------
-    //  Итерация по всем живым объектам
-    // -----------------------------------------------------------------------
-
     template<typename Fn>
     void for_each(Fn&& fn)
     {
@@ -380,29 +314,26 @@ public:
 
     void add_event(std::unique_ptr<events::SceneEvent>& event)
     {
-        events.push_back(EventSlot(std::move(event), ~static_cast<size_t>(0)));
+        events_.push_back(EventSlot(std::move(event), ~static_cast<size_t>(0)));
     }
 
     void add_events(std::vector<std::unique_ptr<events::SceneEvent>>& events_vector)
     {
         for (std::unique_ptr<events::SceneEvent>& eventPtr : events_vector) {
-            events.push_back(EventSlot(std::move(eventPtr), ~static_cast<size_t>(0)));
+            events_.push_back(EventSlot(std::move(eventPtr), ~static_cast<size_t>(0)));
         }
     }
 
 private:
-
     static void static_add_events(void* contextVoided, std::vector<std::unique_ptr<events::SceneEvent>>& events_vector)
     {
         EventInvokingContext* context = static_cast<EventInvokingContext*>(contextVoided);
         for (std::unique_ptr<events::SceneEvent>& eventPtr : events_vector) {
-            context->scenePtr->events.push_back(EventSlot(std::move(eventPtr), context->objectIndex));
+            context->scenePtr->events_.push_back(EventSlot(std::move(eventPtr), context->objectIndex));
         }
         events_vector.clear();
     }
-    // -----------------------------------------------------------------------
-    //  Освободить слот, инкрементировав поколение
-    // -----------------------------------------------------------------------
+
     void free_slot(uint32_t idx)
     {
         slots_[idx].obj.reset();

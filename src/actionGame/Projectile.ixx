@@ -14,14 +14,14 @@ module;
 
 export module projectile;
 
-import texture;
-import sprite_repository;
-import sprite;
-import scene_object;
-import recursive_hitbox;
+export import texture;
+export import sprite_repository;
+export import sprite;
+export import scene_object;
+export import recursive_hitbox;
 
 export
-struct ProjectileMakeupData
+struct projectile_makeup_data
 {
     size_t texture_id;
     uv_rect local_UV;
@@ -47,11 +47,11 @@ private:
     void* invokeFunctionContext_ = nullptr;
 
     RecursiveHitbox hitbox_;
-    size_t onSceneId_;
+    size_t onSceneId_{};
 
 public:
     Projectile(
-    ProjectileMakeupData data)
+    projectile_makeup_data data)
     : physic_({data.velocity, 0.f, data.kinetic.mass, data.kinetic.moment})
     , texture_id_(data.texture_id)
     , explosion_(data.explosion)
@@ -70,104 +70,104 @@ public:
         sd.color = {255, 255, 255, 255};
 
         auto& repo = SpritesRepository::get_active();
-        sprite_ = repo.addSprite(sd);
+        sprite_ = repo.add_sprite(sd);
         Projectile::set_velocity(data.velocity);
         Projectile::set_position(data.position);
     }
 
-    const float& get_angle() const override
+    [[nodiscard]] float get_angle() const override
     {
-        return SpritesRepository::get_active().getDataPointer(sprite_)->angle;
+        return SpritesRepository::get_active().get_data_pointer(sprite_)->angle;
     }
-    void add_angle(const float& dAngle) override
+    void add_angle(float dAngle) override
     {
-        SpritesRepository::get_active().getDataPointer(sprite_)->angle += dAngle;
+        SpritesRepository::get_active().get_data_pointer(sprite_)->angle += dAngle;
     }
-    void set_angle(const float& angle) override
+    void set_angle(float angle) override
     {
-        SpritesRepository::get_active().getDataPointer(sprite_)->angle = angle;
-    }
-
-    void add_position(const glm::vec2& pos) override
-    {
-        SpritesRepository::get_active().getDataPointer(sprite_)->position += pos;
-    }
-    void set_position(const glm::vec2& pos) override
-    {
-        SpritesRepository::get_active().getDataPointer(sprite_)->position = pos;
-    }
-    const glm::vec2& get_position() const override
-    {
-        return SpritesRepository::get_active().getDataPointer(sprite_)->position;
+        SpritesRepository::get_active().get_data_pointer(sprite_)->angle = angle;
     }
 
-    const float& get_angular_velocity() const override
+    [[nodiscard]] glm::vec2 get_position() const override
+    {
+        return SpritesRepository::get_active().get_data_pointer(sprite_)->position;
+    }
+    void add_position(glm::vec2 pos) override
+    {
+        SpritesRepository::get_active().get_data_pointer(sprite_)->position += pos;
+    }
+    void set_position(glm::vec2 pos) override
+    {
+        SpritesRepository::get_active().get_data_pointer(sprite_)->position = pos;
+    }
+
+    [[nodiscard]] float get_angular_velocity() const override
     {
         return physic_.speed.angularVelocity;
     }
-    void add_angular_velocity(const float& dVelocity) override
+    void add_angular_velocity(float dVelocity) override
     {
         physic_.speed.angularVelocity += dVelocity;
     }
-    void set_angular_velocity(const float& velocity) override
+    void set_angular_velocity(float velocity) override
     {
         physic_.speed.angularVelocity = velocity;
     }
 
-    const glm::vec2& get_velocity() const override
+    [[nodiscard]] glm::vec2 get_velocity() const override
     {
         return physic_.speed.linearVelocity;
     }
-    void add_velocity(const glm::vec2& velocity) override
+    void add_velocity(glm::vec2 velocity) override
     {
         physic_.speed.linearVelocity += velocity;
     }
-    void set_velocity(const glm::vec2& velocity) override
+    void set_velocity(glm::vec2 velocity) override
     {
         physic_.speed.linearVelocity = velocity;
     }
 
-    const float& get_mass() const override
+    [[nodiscard]] float get_mass() const override
     {
         return physic_.kinetic.mass;
     }
-    const float& get_moment() const override
+    [[nodiscard]] float get_moment() const override
     {
         return physic_.kinetic.moment;
     }
 
-    const size_t& get_parent_texture() const override
+    [[nodiscard]] size_t get_parent_texture() const override
     {
         return texture_id_;
     }
 
-    const RecursiveHitbox& get_hitbox() const
+    [[nodiscard]] const RecursiveHitbox& get_hitbox() const
     {
         return hitbox_;
     }
 
-    const size_t& id() override
+    [[nodiscard]] size_t id() const override
     {
         return onSceneId_;
     }
 
-    void onConnectInit(void* context, EventInvokingFunction* func, const size_t& id) override
+    void on_connect_init(void* context, EventInvokingFunction* func, size_t id) override
     {
         invokeFunctionContext_ = context;
         newEventFunc_ = func;
         onSceneId_ = id;
     }
 
-    void invokeEventsFromThis(std::vector<std::unique_ptr<events::SceneEvent>> outside_events) override
+    void invoke_events_from_this(std::vector<std::unique_ptr<events::SceneEvent>> outside_events) override
     {
         newEventFunc_(invokeFunctionContext_, outside_events);
     }
 
 
 #ifndef DEBUG_COLLISION
-    void update(const float& dt) override
+    void update(float dt) override
 #else
-    void update(const float& dt, bool debug_draw) override
+    void update(float dt, bool debug_draw) override
 #endif
     {
         add_position(physic_.speed.linearVelocity * dt);
@@ -187,7 +187,7 @@ public:
     }
 #endif
 
-    void apply_impulse_at(const glm::vec2& impulse, const glm::vec2& world_pos) override {
+    void apply_impulse_at(glm::vec2 impulse, glm::vec2 world_pos) override {
         // 1. Изменение линейной скорости: v += J / m
         physic_.speed.linearVelocity += impulse / physic_.kinetic.mass;
 
@@ -208,7 +208,7 @@ public:
         newEventFunc_(invokeFunctionContext_, events);
     }
 
-    std::optional<glm::vec2> find_contact(const PhysicObject& other) const override
+    [[nodiscard]] std::optional<glm::vec2> find_contact(const PhysicObject& other) const override
     {
         return RecursiveHitbox::checkCollision(
                 RecursiveHitbox::CollisionCheckerInput(hitbox_, get_position(), get_angle()),
@@ -216,19 +216,19 @@ public:
             );
     }
 
-    void area_damage(const explosion_data& explosion, const glm::vec2& position) override
+    void area_damage(explosion_data explosion, glm::vec2 position) override
     {
-        return; // TODO: check if collide
+        // TODO: check if collide
     }
 
-    ~Projectile()
+    ~Projectile() override
     {
-        SpritesRepository::get_active().removeSprite(sprite_);
+        SpritesRepository::get_active().free_sprite(sprite_);
     }
 
 private:
-    const uv_rect& getUV() const
+    [[nodiscard]] uv_rect get_uv() const
     {
-        return SpritesRepository::get_active().getDataPointer(sprite_)->uvRect;
+        return SpritesRepository::get_active().get_data_pointer(sprite_)->uvRect;
     }
 };

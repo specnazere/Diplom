@@ -30,7 +30,7 @@ public:
         isCharsetDirty = true;
     }
 
-    void updateCharset()
+    void update_charset()
     {
         isCharsetDirty = false;
         charset.clear();
@@ -40,15 +40,15 @@ public:
         }
     }
 
-    const std::set<char32_t>& getCharset()
+    [[nodiscard]] const std::set<char32_t>& get_charset()
     {
         if (isCharsetDirty)
-            updateCharset();
+            update_charset();
 
         return charset;
     }
 
-    const std::u32string& operator[](const std::string& key)
+    [[nodiscard]] const std::u32string& operator[](const std::string& key)
     {
         return localisation_map[key];
     }

@@ -8,7 +8,6 @@ module;
 
 export module voxel_health_protocol;
 
-// Сетевой статус, чтобы не тащить зависимости из voxel_object
 export
 enum class NetVoxelStatus : uint8_t {
     Absent   = 0,
@@ -17,7 +16,6 @@ enum class NetVoxelStatus : uint8_t {
     Destroyed = 3
 };
 
-// Обновление одного вокселя. 16 байт, идеально выровнено.
 export
 struct alignas(8) VoxelStateUpdate {
     uint32_t voxel_idx;
@@ -26,7 +24,6 @@ struct alignas(8) VoxelStateUpdate {
 static_assert(std::is_trivially_copyable_v<VoxelStateUpdate>);
 static_assert(sizeof(VoxelStateUpdate) == 8);
 
-// Батч-пакет. Отправляем его через send_typed.
 export
 struct VoxelBatchUpdate {
     static constexpr uint32_t tcp_type_id = 1; // Требование твоего native_tcp
@@ -37,9 +34,6 @@ struct VoxelBatchUpdate {
 };
 static_assert(std::is_trivially_copyable_v<VoxelBatchUpdate>);
 
-// В модуль voxel_health_protocol
-
-// 1. Метаданные (отправляется ОДИН раз при инициализации)
 export
 struct VoxelSnapshotMetadata {
     static constexpr uint32_t tcp_type_id = 2;
@@ -52,7 +46,6 @@ struct VoxelSnapshotMetadata {
 };
 static_assert(std::is_trivially_copyable_v<VoxelSnapshotMetadata>);
 
-// 2. Чанк данных (может быть отправлено несколько раз)
 export
 struct VoxelSnapshotChunk {
     static constexpr uint32_t tcp_type_id = 3;
@@ -64,7 +57,6 @@ struct VoxelSnapshotChunk {
 };
 static_assert(std::is_trivially_copyable_v<VoxelSnapshotChunk>);
 
-// Команда от клиента на лечение/восстановление
 export struct VoxelHealCommand {
     static constexpr uint32_t tcp_type_id = 4;
 

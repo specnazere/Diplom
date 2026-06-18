@@ -22,11 +22,11 @@ module;
 
 export module resources;
 
-import multitype_index_repository;
+export import multitype_index_repository;
 
-import texture;
-import locale;
-import font;
+export import texture;
+export import locale;
+export import font;
 
 import atlas;
 
@@ -49,7 +49,7 @@ public:
     repository<Locale>  localesRepo;
     repository<Font>    fontsRepo;
 
-    size_t loadTextureFile(const std::string& sDesc, const std::string& colorPath, const std::string& normalePath = "none")
+    size_t load_texture_file(const std::string& sDesc, const std::string& colorPath, const std::string& normalePath = "none")
     {
         int width, height, channels;
         unsigned char* colorData = stbi_load(colorPath.c_str(), &width, &height, &channels, 4);
@@ -64,12 +64,10 @@ public:
                 throw std::runtime_error("Texture load failed: " + normalePath);
             }
         }
-
-
         return texturesRepo.add(sDesc, texture(width, height, colorData, normaleData));
     }
 
-    void loadLocaleFile(const std::string& path)
+    void load_locale_file(const std::string& path)
     {
         std::fstream file(path, std::ios::in | std::ios::binary);
 
@@ -121,8 +119,7 @@ public:
         }
     }
 
-    void loadFontFile(const std::string &path, const std::string &sDesc) {
-        // 1. Чтение файла
+    void load_font_file(const std::string &path, const std::string &sDesc) {
         FILE* f = fopen(path.c_str(), "rb");
         if (!f) {
             std::cerr << "Failed to open font file: " << path << std::endl;
@@ -142,7 +139,6 @@ public:
         fread(ttf_buffer, 1, len, f);
         fclose(f);
 
-        // 2. Инициализация STB
         stbtt_fontinfo font_info;
         if (!stbtt_InitFont(&font_info, ttf_buffer, stbtt_GetFontOffsetForIndex(ttf_buffer, 0))) {
             free(ttf_buffer);
@@ -150,46 +146,43 @@ public:
             return;
         }
 
-        // 3. Создание объекта шрифта
         fontsRepo.add(sDesc, Font(path));
         auto& font_obj = fontsRepo[sDesc].object;
 
-        // Сохраняем сырые данные внутри объекта шрифта для будущей растеризации
         font_obj.ttf_data = ttf_buffer;
         font_obj.ttf_size = len;
         font_obj.font_info = font_info;
     }
 
-    void initFontWithCharset(const std::set<char32_t>& charset, const int& size, const std::string& sDesc)
+    void init_font_with_charset(const std::set<char32_t>& charset, const int& size, const std::string& sDesc)
     {
-        initFontByRef(charset, size, fontsRepo[sDesc].object);
+        init_font_by_ref(charset, size, fontsRepo[sDesc].object);
     }
-    void initFontWithCharset(const std::set<char32_t>& charset, const int& size, const unsigned int& iDesc)
+    void init_font_with_charset(const std::set<char32_t>& charset, const int& size, const unsigned int& iDesc)
     {
-        initFontByRef(charset, size, fontsRepo[iDesc].object);
+        init_font_by_ref(charset, size, fontsRepo[iDesc].object);
     }
 
 private:
-    void initFontByRef(const std::set<char32_t>& charset, const int& size, Font& fontRef) {
-        fontRef.bakeGlyphs(charset, texturesRepo, size);
+    void init_font_by_ref(const std::set<char32_t>& charset, const int& size, Font& fontRef) {
+        fontRef.bake_glyphs(charset, texturesRepo, size);
     }
 
 public:
-    Atlas* createAtlas()
+    Atlas* create_atlas()
     {
         std::set<unsigned int> keysSet;
         keysSet.insert_range(texturesRepo.iDescs());
-        return createAtlas(keysSet);
+        return create_atlas(keysSet);
     }
 
-    Atlas* createAtlas(std::set<unsigned int> textureDescs)
+    Atlas* create_atlas(std::set<unsigned int> textureDescs)
     {
         if (textureDescs.empty()) {
             std::cerr << "Texture atlas empty" << std::endl;
             return nullptr;
         }
 
-        // 1. Загрузить все текстуры и подготовить данные для упаковки
         std::vector<std::pair<unsigned int, texture*>> textures;
         textures.reserve(textureDescs.size());
 
@@ -210,14 +203,12 @@ public:
             return nullptr;
         }
 
-        // 2. Определить размер атласа (степень двойки, не больше GL_MAX_TEXTURE_SIZE)
         int max_size = GL_MAX_TEXTURE_SIZE;
         int atlas_size = 1;
         while (atlas_size * atlas_size < total_area * 1.5f && atlas_size < max_size) atlas_size *= 2;
         if (atlas_size > max_size)
             throw std::runtime_error("Too many textures for atlas");
 
-        // 3. Упаковка через stb_rect_pack
         std::vector<stbrp_node> nodes(1024);
         stbrp_context context;
         stbrp_init_target(&context, atlas_size, atlas_size, nodes.data(), (int)nodes.size());
@@ -230,7 +221,6 @@ public:
         }
 
         if (!stbrp_pack_rects(&context, rects.data(), (int)rects.size())) {
-            // Не поместилось — попробовать увеличить размер
             while (atlas_size < max_size) {
                 atlas_size *= 1.5;
                 stbrp_init_target(&context, atlas_size, atlas_size, nodes.data(), (int)nodes.size());
@@ -242,7 +232,6 @@ public:
             }
         }
 
-        // 4. Создать буфер атласа и скопировать текстуры
         std::vector<unsigned char> atlas_pixels(atlas_size * atlas_size * 4, 0);
         std::vector<unsigned char> atlas_normale_pixels(atlas_size * atlas_size * 4, 0);
         for (size_t i = 0; i < textures.size(); ++i) {
@@ -257,15 +246,14 @@ public:
 
             for (int row = 0; row < h; ++row) {
                 for (int col = 0; col < w; ++col) {
-                    // Инвертируем row для src: последняя строка src станет первой в атласе
                     int src_row = h - 1 - row;
                     int dst_idx = ((y + row) * atlas_size + (x + col)) * 4;
                     int src_idx = (src_row * w + (w - 1 - col)) * 4;
 
-                    atlas_pixels[dst_idx + 0] = color_src[src_idx + 0];  // R
-                    atlas_pixels[dst_idx + 1] = color_src[src_idx + 1];  // G
-                    atlas_pixels[dst_idx + 2] = color_src[src_idx + 2];  // B
-                    atlas_pixels[dst_idx + 3] = color_src[src_idx + 3];  // A
+                    atlas_pixels[dst_idx + 0] = color_src[src_idx + 0]; // R
+                    atlas_pixels[dst_idx + 1] = color_src[src_idx + 1]; // G
+                    atlas_pixels[dst_idx + 2] = color_src[src_idx + 2]; // B
+                    atlas_pixels[dst_idx + 3] = color_src[src_idx + 3]; // A
                 }
             }
 
@@ -273,20 +261,18 @@ public:
 
             for (int row = 0; row < h; ++row) {
                 for (int col = 0; col < w; ++col) {
-                    // Инвертируем row для src: последняя строка src станет первой в атласе
                     int src_row = h - 1 - row;
                     int dst_idx = ((y + row) * atlas_size + (x + col)) * 4;
                     int src_idx = (src_row * w + (w - 1 - col)) * 4;
 
-                    atlas_normale_pixels[dst_idx + 0] = normale_src[src_idx + 0];  // R
-                    atlas_normale_pixels[dst_idx + 1] = normale_src[src_idx + 1];  // G
-                    atlas_normale_pixels[dst_idx + 2] = normale_src[src_idx + 2];  // B
-                    atlas_normale_pixels[dst_idx + 3] = normale_src[src_idx + 3];  // A
+                    atlas_normale_pixels[dst_idx + 0] = normale_src[src_idx + 0]; // R
+                    atlas_normale_pixels[dst_idx + 1] = normale_src[src_idx + 1]; // G
+                    atlas_normale_pixels[dst_idx + 2] = normale_src[src_idx + 2]; // B
+                    atlas_normale_pixels[dst_idx + 3] = normale_src[src_idx + 3]; // A
                 }
             }
         }
 
-        // 5. Загрузить атлас в GPU
         unsigned int atlas_id;
         glGenTextures(1, &atlas_id);
         glBindTexture(GL_TEXTURE_2D, atlas_id);
@@ -309,7 +295,6 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-        // 6. Создать объект атласа и заполнить UV-маппинг
         auto atlas = new Atlas(atlas_id, normale_atlas_id, atlas_size, atlas_size);
         for (size_t i = 0; i < textures.size(); ++i) {
             if (!rects[i].was_packed) continue;
@@ -324,7 +309,7 @@ public:
         return atlas;
     }
 
-    size_t addSolidColorTexture(const std::string& sDesc, unsigned char r, unsigned char g, unsigned char b, unsigned char a = 255)
+    size_t add_solid_color_texture(const std::string& sDesc, unsigned char r, unsigned char g, unsigned char b, unsigned char a = 255)
     {
         unsigned char* data = new unsigned char[4];
         data[0] = r;

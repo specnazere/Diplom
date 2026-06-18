@@ -13,7 +13,6 @@ struct alignas(16) SpriteData {
     glm::float32 width = 100;
     glm::float32 height = 100;
 
-    // Локальные параметры спрайта (применяются ПОСЛЕ глобальной трансформации)
     glm::float32 angle{};
     glm::vec2 position{};
 
@@ -36,11 +35,11 @@ public:
 
     Sprite() {}
 
-    explicit Sprite(const size_t& texture) :
+    explicit Sprite(size_t texture) :
         textureDesc(texture) {}
 
     // Быстрая проверка на валидность
-    inline bool isValid() const {
+    inline bool is_valid() const {
         return dataIdx != ~size_t{0};
     }
 };
